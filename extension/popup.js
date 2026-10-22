@@ -57,7 +57,7 @@ async function doCapture(statusEl) {
   } catch (e) {
     const msg = (e && e.message) || String(e);
     statusEl.textContent = /failed to fetch|networkerror|load failed|ECONNREFUSED|aborted/i.test(msg)
-      ? '保存失败：连不上服务端，请先打开 PageVault.app'
+      ? '保存失败：连不上服务端，请先打开「网页收藏」App'
       : '保存到服务端失败：' + msg;
   }
 }

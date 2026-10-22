@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "PageVault 整页保存",
+  "name": "网页收藏 · 整页保存",
   "version": "0.5.0",
-  "description": "一键把当前网页完整保存到 PageVault 同步库，随时离线回看（基于 SingleFile 高保真捕获）。",
+  "description": "一键把当前网页完整保存到「网页收藏」同步库，随时离线回看（基于 SingleFile 高保真捕获）。",
   "permissions": ["activeTab", "scripting", "storage"],
   "background": { "service_worker": "background.js" },
   "host_permissions": [
@@ -12,7 +12,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "保存整页到 PageVault"
+    "default_title": "保存整页到 网页收藏"
   },
   "web_accessible_resources": [
     {

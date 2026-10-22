@@ -2,9 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>PageVault</string>
-  <key>CFBundleDisplayName</key><string>PageVault</string>
-  <key>CFBundleExecutable</key><string>PageVault</string>
+  <key>CFBundleName</key><string>网页收藏</string>
+  <key>CFBundleDisplayName</key><string>网页收藏</string>
+  <key>CFBundleExecutable</key><string>网页收藏</string>
   <key>CFBundleIdentifier</key><string>com.pagevault.app</string>
   <key>CFBundleVersion</key><string>0.1.0</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
