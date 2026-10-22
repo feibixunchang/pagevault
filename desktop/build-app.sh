@@ -35,8 +35,8 @@ cp "$DESKTOP/package.json" "$OUT/Contents/Resources/app/package.json"
 cp "$DESKTOP/AppIcon.icns" "$OUT/Contents/Resources/AppIcon.icns"
 rm -f "$OUT/Contents/Resources/electron.icns"
 
-# 5. Bundle the sync server (extra resource)
-rsync -a --delete "$SERVER/" "$OUT/Contents/Resources/server/"
+# 5. Bundle the sync server (extra resource; exclude runtime data/)
+rsync -a --delete --exclude=data "$SERVER/" "$OUT/Contents/Resources/server/"
 
 # 6. Ad-hoc sign (mandatory on Apple Silicon after modifying the bundle)
 codesign --force --deep --sign - "$OUT" 2>&1 | tail -3 || true
