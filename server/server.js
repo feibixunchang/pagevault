@@ -11,8 +11,15 @@ const crypto = require('crypto');
 const { SyncEngine, extractMeta, ONLINE_WINDOW_MS } = require('./sync');
 const { zipStore, zipRead } = require('./zip');
 
-const VERSION = '0.6.1';
+const VERSION = '1.0.0';
 const PORT = process.env.PORT || 8731;
+// 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
+// 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
+const PLATFORM = (function () {
+  if (process.env.PAGEVAULT_PLATFORM) return process.env.PAGEVAULT_PLATFORM;
+  try { if (fs.existsSync('/.dockerenv')) return 'docker'; } catch { /* 忽略 */ }
+  return process.env.PAGEVAULT_DESKTOP === '1' ? 'desktop' : 'web';
+})();
 const ROOT = __dirname;
 const DATA_ROOT = process.env.PAGEVAULT_DATA || path.join(ROOT, 'data');
 const DATA_DIR = path.join(DATA_ROOT, 'pages');
@@ -329,7 +336,7 @@ const server = http.createServer((req, res) => {
         lastError += '（本机 DNS 整体不可用：连 www.baidu.com 也解析不了，请检查网络后再试）';
       }
       send(res, 200, JSON.stringify({
-        ok: true, version: VERSION, port: PORT,
+        ok: true, version: VERSION, port: PORT, platform: PLATFORM,
         extension: { lastSeen: extState.lastSeen, version: extState.version, online: extensionOnline() },
         extensionPath: extensionDir(),
         sync: { configured: !!(cfg.url && cfg.user), status: s.status, lastSyncAt: s.lastSyncAt, lastError: lastError, lastStats: s.lastStats },
@@ -445,6 +452,35 @@ const server = http.createServer((req, res) => {
       sync.schedule(syncConfig()); // 导入后推给其他端
       send(res, 200, JSON.stringify({ ok: true, imported }), { 'Content-Type': 'application/json; charset=utf-8' });
     });
+    return;
+  }
+
+  // 扩展整包下载（Docker / 网页版没有本地安装目录，用户必须能从这里把扩展拿走）
+  // GET /api/extension.zip -> application/zip
+  if (req.method === 'GET' && p === '/api/extension.zip') {
+    const dir = extensionDir();
+    if (!dir) { send(res, 404, JSON.stringify({ error: 'extension not bundled' }), { 'Content-Type': 'application/json' }); return; }
+    try {
+      const files = [];
+      (function walk(sub) {
+        const abs = sub ? path.join(dir, sub) : dir;
+        for (const name of fs.readdirSync(abs)) {
+          const rel = sub ? sub + '/' + name : name;
+          const full = path.join(dir, rel);
+          const st = fs.statSync(full);
+          if (st.isDirectory()) walk(rel);
+          else if (st.isFile()) files.push({ name: rel, data: fs.readFileSync(full) });
+        }
+      })('');
+      const buf = zipStore(files);
+      send(res, 200, buf, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="pagevault-extension.zip"',
+        'Cache-Control': 'no-store'
+      });
+    } catch (e) {
+      send(res, 500, JSON.stringify({ error: String(e && e.message || e) }), { 'Content-Type': 'application/json' });
+    }
     return;
   }
 

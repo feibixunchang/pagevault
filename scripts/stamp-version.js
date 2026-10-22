@@ -6,6 +6,8 @@
 //   1. server/server.js       的 const VERSION
 //   2. server/package.json    的 version
 //   3. extension/manifest.json 的 version
+//   4. server/Dockerfile       的 OCI 镜像版本标签
+//   5. docker-compose.yml / server/docker-compose.yml 的镜像 tag
 // 用法：node scripts/stamp-version.js [--check]
 //   --check 只校验不写入（不一致时退出码 1，可用于 CI / 构建前自检）
 
@@ -17,6 +19,11 @@ const PKG = path.join(ROOT, 'desktop', 'package.json');
 const SERVER_JS = path.join(ROOT, 'server', 'server.js');
 const SERVER_PKG = path.join(ROOT, 'server', 'package.json');
 const MANIFEST = path.join(ROOT, 'extension', 'manifest.json');
+const DOCKERFILE = path.join(ROOT, 'server', 'Dockerfile');
+const COMPOSE_FILES = [
+  path.join(ROOT, 'docker-compose.yml'),
+  path.join(ROOT, 'server', 'docker-compose.yml')
+];
 
 const checkOnly = process.argv.includes('--check');
 
@@ -60,6 +67,29 @@ const mf = readJson(MANIFEST);
 if (mf.version !== version) {
   problems.push('extension/manifest.json version=' + mf.version + ' → ' + version);
   if (!checkOnly) { mf.version = version; writeJson(MANIFEST, mf); }
+}
+
+// 4) Dockerfile 的 OCI 版本标签 + compose 的镜像 tag（纯文本替换，保留原有格式）
+const textTargets = [
+  { file: DOCKERFILE, re: /org\.opencontainers\.image\.version="[^"]*"/, label: 'Dockerfile 镜像版本标签' }
+];
+for (const f of COMPOSE_FILES) {
+  if (fs.existsSync(f)) {
+    textTargets.push({ file: f, re: /(image:\s*pagevault\/server:)[\w.\-]+/, label: path.basename(path.dirname(f)) + '/docker-compose.yml 镜像 tag' });
+  }
+}
+for (const t of textTargets) {
+  if (!fs.existsSync(t.file)) continue;
+  const src = fs.readFileSync(t.file, 'utf8');
+  const mm = src.match(t.re);
+  if (!mm) { problems.push(t.label + ' 里找不到版本占位'); continue; }
+  const current = (mm[0].match(/(\d+\.\d+\.\d+)/) || [])[1];
+  if (current === version) continue;
+  problems.push(t.label + ' ' + current + ' → ' + version);
+  if (!checkOnly) {
+    const replaced = src.replace(t.re, mm[0].replace(current, version));
+    fs.writeFileSync(t.file, replaced);
+  }
 }
 
 if (problems.length === 0) {

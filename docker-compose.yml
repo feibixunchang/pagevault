@@ -1,0 +1,43 @@
+# 网页收藏 PageVault —— 自托管服务端（Docker 端）
+#
+# 起服务（在仓库根目录）：
+#   docker compose up -d --build
+# 然后浏览器打开 http://<主机IP>:8731
+#
+# NAS 上建议把数据目录换成绝对路径（见下面 volumes 注释），并确认 PUID/PGID
+# 与目录属主一致：NAS 终端里执行 `id` 就能看到（飞牛/群晖通常都是 1000）。
+
+services:
+  pagevault:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: pagevault/server:1.0.0
+    container_name: pagevault
+    restart: unless-stopped
+    ports:
+      # 左边是宿主机端口（被占用就改这个），右边固定 8731
+      - "8731:8731"
+    environment:
+      TZ: Asia/Shanghai
+      PORT: "8731"
+      PUID: "1000"
+      PGID: "1000"
+    volumes:
+      # 数据（页面 HTML + index.json + 偏好 + 日志）全部落在这里，删容器不丢数据
+      - ./data:/data
+      # NAS 示例：- /your/nas/path/pagevault/data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8731/api/status',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# 说明：本服务不需要数据库、不需要外网，页面数据就是一个普通文件夹，
+# 备份 = 打包 data 目录；迁移 = 把 data 目录搬到新机器即可。
