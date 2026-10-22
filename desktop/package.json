@@ -1,0 +1,15 @@
+{
+  "name": "pagevault-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PageVault desktop (macOS) — wraps the sync server + reader in a real .app window.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "arch=$(uname -m); [ \"$arch\" = \"x86_64\" ] && arch=x64; electron-packager . PageVault --platform=darwin --arch=$arch --out=dist --overwrite --extra-resource=../server"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-packager": "^17.1.2"
+  }
+}

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PageVault · 我的网页库</title>
+<style>
+  :root { --bg:#f7f8fa; --panel:#ffffff; --border:#e3e6ea; --text:#1f2933; --muted:#6b7280; --accent:#185fa5; --accent-bg:#e6f1fb; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--text); background:var(--bg); height:100vh; display:flex; flex-direction:column; }
+  header { padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:14px; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .count { color:var(--muted); font-size:13px; }
+  #search { margin-left:auto; padding:7px 11px; border:1px solid var(--border); border-radius:8px; width:240px; font-size:13px; outline:none; }
+  #search:focus { border-color:var(--accent); }
+  #refresh { padding:7px 12px; border:1px solid var(--border); border-radius:8px; background:var(--panel); font-size:13px; cursor:pointer; color:var(--text); }
+  #refresh:hover { border-color:var(--accent); color:var(--accent); }
+  .newflash { animation: flash 1.6s ease-out; }
+  @keyframes flash { 0% { background:#d9f2e3; } 100% { background:transparent; } }
+  main { flex:1; display:flex; min-height:0; }
+  #list { width:340px; border-right:1px solid var(--border); overflow:auto; background:var(--panel); }
+  .item { padding:13px 16px; border-bottom:1px solid var(--border); cursor:pointer; }
+  .item:hover { background:var(--accent-bg); }
+  .item.active { background:var(--accent-bg); border-left:3px solid var(--accent); }
+  .item .t { font-size:14px; font-weight:500; margin-bottom:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:86px; }
+  .item .meta { font-size:12px; color:var(--muted); display:flex; gap:8px; flex-wrap:wrap; }
+  .item { position:relative; }
+  .del-x { position:absolute; top:10px; right:10px; width:22px; height:22px; border:0; border-radius:6px; background:transparent; color:var(--muted); font-size:15px; line-height:1; cursor:pointer; display:none; }
+  .item:hover .del-x { display:block; }
+  .del-x:hover { background:#fdecec; color:#c0392b; }
+  .star { position:absolute; top:10px; right:36px; border:0; background:transparent; cursor:pointer; font-size:14px; color:#c7ccd4; padding:0 3px; }
+  .star:hover { color:#e8b93c; }
+  .star.on { color:#e8b93c; }
+  #onlyStarred { padding:6px 11px; border:1px solid var(--border); border-radius:8px; background:var(--panel); font-size:12px; cursor:pointer; color:var(--muted); }
+  #onlyStarred.on { border-color:#e8b93c; color:#b8860b; background:#fdf6e3; }
+  #fullsearch { margin-left:0; width:auto; font-size:12px; padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--panel); cursor:pointer; color:var(--muted); }
+  #fullsearch.on { border-color:var(--accent); color:var(--accent); background:var(--accent-bg); }
+  .item .snip { font-size:12px; color:var(--muted); margin-top:5px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .badge { background:var(--accent-bg); color:var(--accent); border-radius:5px; padding:1px 6px; font-size:11px; }
+  #view { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #viewbar { padding:9px 14px; background:var(--panel); border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); display:flex; align-items:center; gap:12px; }
+  #viewbar a { color:var(--accent); text-decoration:none; }
+  #reader { margin-left:auto; padding:5px 11px; border:1px solid var(--border); border-radius:7px; background:#fff; color:var(--text); font-size:12px; cursor:pointer; }
+  #reader:hover { border-color:var(--accent); color:var(--accent); }
+  #reader.on { background:var(--accent-bg); border-color:var(--accent); color:var(--accent); }
+  #del { margin-left:8px; padding:5px 11px; border:1px solid #e3b3b3; border-radius:7px; background:#fff; color:#c0392b; font-size:12px; cursor:pointer; }
+  #del:hover { background:#fdecec; }
+  #exp { margin-left:auto; padding:5px 11px; border:1px solid var(--border); border-radius:7px; background:#fff; color:var(--text); font-size:12px; cursor:pointer; }
+  #exp:hover { border-color:var(--accent); color:var(--accent); }
+  .rv-body { max-width:760px; margin:0 auto; padding:40px 24px; font-size:17px; line-height:1.85; color:#1f2933; background:#fff; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif; }
+  .rv-body img, .rv-body video { max-width:100%; height:auto; border-radius:6px; }
+  .rv-body h1 { font-size:24px; line-height:1.4; }
+  .rv-body h2 { font-size:20px; }
+  .rv-body a { color:#185fa5; }
+  .rv-body pre { background:#f4f5f7; padding:12px; border-radius:8px; overflow:auto; }
+  .rv-byline { color:#6b7280; font-size:13px; margin:0 0 22px; padding-bottom:14px; border-bottom:1px solid #e3e6ea; }
+  #frame { flex:1; border:0; width:100%; background:#fff; }
+  .empty { margin:auto; color:var(--muted); text-align:center; padding:40px; }
+  .empty b { color:var(--text); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>PageVault</h1>
+    <span class="count" id="count"></span>
+    <button id="onlyStarred" title="只看收藏的页面">☆ 收藏</button>
+    <input id="search" placeholder="搜索标题或链接…" />
+    <button id="fullsearch" title="同时搜索页面正文内容">全文</button>
+    <button id="refresh" title="重新加载列表">↻ 刷新</button>
+  </header>
+  <main>
+    <div id="list"></div>
+    <div id="view">
+      <div id="viewbar"><span id="viewmeta">尚未选择</span><button id="reader" style="display:none">📖 阅读模式</button><button id="exp" style="display:none">⤓ 导出 .html</button><button id="del" style="display:none">🗑 删除</button></div>
+      <iframe id="frame" sandbox="allow-same-origin allow-scripts"></iframe>
+    </div>
+  </main>
+
+<script src="/readability.js"></script>
+<script>
+  const listEl = document.getElementById('list');
+  const frame = document.getElementById('frame');
+  const viewmeta = document.getElementById('viewmeta');
+  const countEl = document.getElementById('count');
+  const searchEl = document.getElementById('search');
+  let pages = [];
+  let currentId = null;
+  let onlyStarred = false;
+  let fullSearch = false;
+  let ftResults = [];
+  let ftTimer = null;
+
+  async function load() {
+    const r = await fetch('/api/pages');
+    pages = await r.json();
+    countEl.textContent = pages.length + ' 个页面';
+    render(searchEl.value);
+  }
+
+  function render(q) {
+    const f = (q || '').trim().toLowerCase();
+    let items;
+    if (fullSearch && f) {
+      items = ftResults.map(r => pages.find(p => p.id === r.id)).filter(Boolean);
+    } else {
+      items = pages.filter(p => {
+        if (onlyStarred && !p.starred) return false;
+        return !f || (p.title || '').toLowerCase().includes(f) || (p.url || '').toLowerCase().includes(f);
+      });
+    }
+    listEl.innerHTML = '';
+    if (!items.length) {
+      listEl.innerHTML = '<div class="empty">' + (fullSearch && f ? '正文里没搜到，试试其他关键词' : '没有匹配的页面') + '</div>';
+      return;
+    }
+    items.forEach(p => {
+      const d = document.createElement('div');
+      d.className = 'item';
+      d.dataset.id = p.id;
+      const date = new Date(p.savedAt);
+      d.innerHTML = `<div class="t"></div>
+        <div class="meta"><span class="badge"></span><span class="plat"></span><span class="dt"></span><span class="sz"></span></div>
+        <button class="star" title="收藏">${p.starred ? '★' : '☆'}</button>
+        <button class="del-x" title="删除">×</button>`;
+      d.querySelector('.t').textContent = p.title || '(无标题)';
+      d.querySelector('.badge').textContent = p.platform || 'unknown';
+      d.querySelector('.plat').textContent = '来源 ' + (p.url ? new URL(p.url).hostname : '—');
+      d.querySelector('.dt').textContent = date.toLocaleString();
+      d.querySelector('.sz').textContent = (p.size/1024).toFixed(0) + ' KB';
+      if (p.starred) d.querySelector('.star').classList.add('on');
+      if (fullSearch && f) {
+        const r = ftResults.find(x => x.id === p.id);
+        if (r && r.snippet) {
+          const snip = document.createElement('div');
+          snip.className = 'snip';
+          snip.textContent = '…' + r.snippet + '…';
+          d.appendChild(snip);
+        }
+      }
+      d.onclick = () => openPage(p);
+      d.querySelector('.del-x').onclick = (ev) => { ev.stopPropagation(); deletePage(p.id); };
+      d.querySelector('.star').onclick = (ev) => { ev.stopPropagation(); toggleStar(p.id); };
+      listEl.appendChild(d);
+    });
+  }
+
+  let readerOn = false;
+
+  function openPage(p) {
+    currentId = p.id;
+    readerOn = false;
+    document.getElementById('reader').classList.remove('on');
+    document.querySelectorAll('.item').forEach(x => x.classList.remove('active'));
+    const el = document.querySelector('.item[data-id="' + p.id + '"]');
+    if (el) el.classList.add('active');
+    frame.src = '/p/' + p.id;
+    viewmeta.innerHTML = '已保存于 <b>' + new Date(p.savedAt).toLocaleString() + '</b> · 来自 ' + (p.platform||'unknown') +
+      ' · <a href="' + (p.url||'#') + '" target="_blank" rel="noopener">查看原链接</a>';
+    document.getElementById('del').style.display = 'inline-block';
+    document.getElementById('reader').style.display = 'inline-block';
+    document.getElementById('exp').style.display = 'inline-block';
+  }
+
+  // 收藏/取消收藏
+  function toggleStar(id) {
+    fetch('/api/pages/' + id + '/star', { method: 'PATCH' })
+      .then(r => r.json())
+      .then(d => {
+        const p = pages.find(x => x.id === id);
+        if (p) p.starred = !!d.starred;
+        render(searchEl.value);
+      })
+      .catch(() => alert('收藏操作失败'));
+  }
+
+  document.getElementById('exp').addEventListener('click', () => {
+    if (!currentId) return;
+    window.location = '/api/pages/' + currentId + '/export';
+  });
+
+  document.getElementById('onlyStarred').addEventListener('click', function () {
+    onlyStarred = !onlyStarred;
+    this.classList.toggle('on', onlyStarred);
+    render(searchEl.value);
+  });
+
+  document.getElementById('fullsearch').addEventListener('click', function () {
+    fullSearch = !fullSearch;
+    this.classList.toggle('on', fullSearch);
+    searchEl.placeholder = fullSearch ? '全文搜索标题、链接和正文…' : '搜索标题或链接…';
+    if (!fullSearch) ftResults = [];
+    render(searchEl.value);
+  });
+
+  searchEl.addEventListener('input', () => {
+    const q = searchEl.value;
+    if (fullSearch && q.trim()) {
+      clearTimeout(ftTimer);
+      ftTimer = setTimeout(async () => {
+        try {
+          const r = await fetch('/api/search?q=' + encodeURIComponent(q.trim()));
+          ftResults = await r.json();
+          render(q);
+        } catch { /* 保留原结果 */ }
+      }, 350);
+      return;
+    }
+    render(q);
+  });
+
+  // 阅读模式：用 Readability 从保存的页面抽取正文，去掉页头/侧栏/推荐流等杂项
+  document.getElementById('reader').addEventListener('click', () => {
+    if (!currentId) return;
+    if (readerOn) { // 切回原网页
+      readerOn = false;
+      document.getElementById('reader').classList.remove('on');
+      frame.src = '/p/' + currentId;
+      return;
+    }
+    try {
+      const doc = frame.contentDocument;
+      if (!doc || !doc.documentElement) throw new Error('页面尚未加载完成');
+      const parsed = new DOMParser().parseFromString(doc.documentElement.outerHTML, 'text/html');
+      const article = new Readability(parsed).parse();
+      if (!article || !article.content) { alert('这个页面暂时抽不出正文（可能不是文章型页面）'); return; }
+      const byline = article.byline ? '<p class="rv-byline">' + article.byline + '</p>' : '';
+      const fdoc = frame.contentDocument;
+      fdoc.open();
+      fdoc.write('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>'
+        + '<div class="rv-body"><h1>' + (article.title || '') + '</h1>' + byline + article.content + '</div></body></html>');
+      fdoc.close();
+      readerOn = true;
+      document.getElementById('reader').classList.add('on');
+    } catch (e) {
+      alert('阅读模式失败：' + ((e && e.message) || e));
+    }
+  });
+
+  function deletePage(id) {
+    if (!id) return;
+    if (!confirm('确定删除这个保存的页面吗？')) return;
+    fetch('/api/pages/' + id, { method: 'DELETE' })
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); applyDeleted(id); })
+      .catch(() => alert('删除失败，请重试'));
+  }
+
+  // 从列表与视图里移除（本地或 SSE 触发）
+  function applyDeleted(id) {
+    pages = pages.filter(p => p.id !== id);
+    render(searchEl.value);
+    if (currentId === id) {
+      currentId = null;
+      readerOn = false;
+      frame.src = 'about:blank';
+      viewmeta.textContent = '已删除';
+      document.getElementById('del').style.display = 'none';
+      document.getElementById('reader').style.display = 'none';
+      document.getElementById('exp').style.display = 'none';
+    }
+  }
+
+  document.getElementById('del').addEventListener('click', () => deletePage(currentId));
+
+  searchEl.addEventListener('input', () => render(searchEl.value));
+  document.getElementById('refresh').addEventListener('click', load);
+
+  // 保存事件实时推送：有新页面存入时自动刷新列表（SSE），断线自动重连
+  let knownIds = new Set(pages.map(p => p.id));
+  function connectEvents() {
+    const es = new EventSource('/api/events');
+    es.onmessage = async (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (d.type === 'deleted') { applyDeleted(d.id); return; }
+        if (d.type === 'starred') {
+          const p = pages.find(x => x.id === d.id);
+          if (p) p.starred = !!d.starred;
+          render(searchEl.value);
+          return;
+        }
+        if (d.type !== 'saved') return;
+        const before = new Set(knownIds);
+        await load();
+        knownIds = new Set(pages.map(p => p.id));
+        const added = [...knownIds].filter(id => !before.has(id));
+        added.forEach(id => {
+          const el = document.querySelector('.item[data-id="' + id + '"]');
+          if (el) { el.classList.add('newflash'); el.scrollIntoView({ block: 'nearest' }); }
+        });
+      } catch { /* 忽略单条坏消息 */ }
+    };
+    es.onerror = () => { /* EventSource 自带断线重连 */ };
+  }
+  load().then(() => { knownIds = new Set(pages.map(p => p.id)); connectEvents(); });
+
+</script>
+</body>
+</html>

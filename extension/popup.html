@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<style>
+  body { width: 280px; margin:0; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:#1f2933; }
+  .card { padding:16px; }
+  h1 { font-size:15px; margin:0 0 2px; font-weight:600; }
+  .sub { font-size:12px; color:#6b7280; margin:0 0 14px; }
+  #capture { width:100%; padding:10px; border:0; border-radius:9px; background:#185fa5; color:#fff; font-size:14px; cursor:pointer; }
+  #capture:hover { background:#0c447c; }
+  .row { display:flex; gap:6px; margin-top:12px; }
+  #server { flex:1; padding:7px 9px; border:1px solid #e3e6ea; border-radius:7px; font-size:12px; outline:none; min-width:0; }
+  #save { padding:7px 12px; border:1px solid #e3e6ea; border-radius:7px; background:#fff; font-size:12px; cursor:pointer; }
+  #status { margin-top:12px; font-size:12px; color:#6b7280; min-height:16px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>PageVault</h1>
+    <p class="sub">一键保存当前整页</p>
+    <button id="capture">保存整页</button>
+    <div class="row">
+      <input id="server" placeholder="服务端地址" />
+      <button id="save">存</button>
+    </div>
+    <div id="status">就绪</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
