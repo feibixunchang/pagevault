@@ -192,8 +192,11 @@ class PeerProvider {
 
   async getIndex() {
     const m = await this._json('GET', '/api/sync/manifest');
-    this._manifest = m || { pages: [], deletions: [] };
-    return Array.isArray(this._manifest.pages) ? this._manifest.pages : [];
+    // 404 = 对方没有对端接口（多半是 1.1.0 以前的版本）。
+    // 这里必须报错，不能当成"远端是空的"——否则会把本地全量推过去。
+    if (!m) throw new Error('对方没有对端同步接口（版本可能低于 1.1.0），请先升级那台机器');
+    this._manifest = m;
+    return Array.isArray(m.pages) ? m.pages : [];
   }
   async putIndex() { /* 对端自己维护索引，页面写入时会更新 */ }
 
@@ -246,7 +249,8 @@ class PeerProvider {
   async test() {
     // probe 要鉴权，能顺便验证令牌；令牌错会抛 401
     const r = await this._json('GET', '/api/sync/probe');
-    if (!r || !r.ok) return { ok: false, status: 200, message: '对端返回异常' };
+    if (!r) return { ok: false, status: 404, message: '对方没有对端同步接口（版本可能低于 1.1.0），请先升级那台机器' };
+    if (!r.ok) return { ok: false, status: 200, message: '对端返回异常' };
     return {
       ok: true,
       status: 200,
