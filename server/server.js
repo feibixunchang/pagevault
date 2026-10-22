@@ -45,9 +45,15 @@ function extensionOnline() {
 
 // ---------- 浏览器扩展目录（随安装包分发；菜单"安装浏览器扩展…"定位到这里） ----------
 function extensionDir() {
-  const packed = path.join(ROOT, '..', 'extension'); // Resources/extension 或 仓库/extension
-  const inner = path.join(ROOT, 'extension');
-  for (const d of [packed, inner]) {
+  // Mac 包：Contents/Resources/server → ../extension
+  // Windows 包：resources/server → ../../extension（zip 根目录）
+  // 开发仓库：server/ → ../extension
+  const candidates = [
+    path.join(ROOT, '..', 'extension'),
+    path.join(ROOT, '..', '..', 'extension'),
+    path.join(ROOT, 'extension')
+  ];
+  for (const d of candidates) {
     try { if (fs.existsSync(path.join(d, 'manifest.json'))) return d; } catch { /* 继续试下一个 */ }
   }
   return null;
@@ -159,6 +165,12 @@ function broadcastDeleted(id) {
   for (const c of sseClients) { try { c.res.write(payload); } catch { sseClients.delete(c); } }
 }
 
+// 外观/语言等偏好变化 → 广播给其他端实时应用（阅读器收到后本地 apply，不重载页面）
+function broadcastPrefs(prefs) {
+  const payload = `data: ${JSON.stringify({ type: 'prefs', prefs })}\n\n`;
+  for (const c of sseClients) { try { c.res.write(payload); } catch { sseClients.delete(c); } }
+}
+
 function broadcastMeta(evt) {
   const payload = `data: ${JSON.stringify(evt)}\n\n`;
   for (const c of sseClients) { try { c.res.write(payload); } catch { sseClients.delete(c); } }
@@ -257,6 +269,8 @@ const server = http.createServer((req, res) => {
       const clean = {};
       if (['system', 'light', 'dark'].includes(prefs.theme)) clean.theme = prefs.theme;
       if (['system', 'zh', 'en'].includes(prefs.lang)) clean.lang = prefs.lang;
+      if (['system', 'songti', 'kaiti', 'heiti', 'yuanti', 'yahei', 'pingfang', 'mono'].includes(prefs.font)) clean.font = prefs.font;
+      if (typeof prefs.autoUpdate === 'boolean') clean.autoUpdate = prefs.autoUpdate;
       if (prefs.sync && typeof prefs.sync === 'object') {
         // 同步配置（WebDAV 账号 = 多端同步的同一账号）
         const s = prefs.sync;
@@ -271,6 +285,8 @@ const server = http.createServer((req, res) => {
       try { fs.writeFileSync(PREFS_FILE, JSON.stringify(clean, null, 2)); } catch { /* 只读环境忽略 */ }
       send(res, 200, JSON.stringify(clean), { 'Content-Type': 'application/json; charset=utf-8' });
       restartSyncTimer();
+      // 广播给其他端：主题/语言/字体等外观设置实时互相同步（不重载页面，只应用）
+      broadcastPrefs(clean);
     });
     return;
   }

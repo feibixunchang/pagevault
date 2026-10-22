@@ -45,11 +45,20 @@ fi
 
 # 3. Our app entry + bundled sync server + icon
 cp "$DESKTOP/main.js" "$OUT/resources/app/main.js"
+cp "$DESKTOP/updater.js" "$OUT/resources/app/updater.js"
+cp "$DESKTOP/preload.js" "$OUT/resources/app/preload.js"
 cp "$DESKTOP/package.json" "$OUT/resources/app/package.json"
 rsync -a --delete --exclude=data "$SERVER/" "$OUT/resources/server/"
-# 浏览器扩展随包分发（菜单"安装浏览器扩展…"定位到这里）
+# 浏览器扩展随包分发（菜单"安装浏览器扩展…"定位到这里）。
+# 放两处：zip 根目录（用户直接看到）+ resources/extension（与 Mac 包布局一致，
+# 服务端 extensionDir() 两个候选路径都能命中，防止布局调整后找不到）
 rsync -a --delete --exclude='.DS_Store' "$ROOT/extension/" "$OUT/extension/"
+mkdir -p "$OUT/resources/extension"
+rsync -a --delete --exclude='.DS_Store' "$ROOT/extension/" "$OUT/resources/extension/"
 [ -f "$DESKTOP/AppIcon.ico" ] && cp "$DESKTOP/AppIcon.ico" "$OUT/AppIcon.ico"
+# 一键安装/卸载（用户级：装到 %LOCALAPPDATA%\Programs\WebVault，建快捷方式，注册卸载项）
+cp "$DESKTOP/install-win.cmd" "$OUT/install.cmd"
+cp "$DESKTOP/uninstall-win.cmd" "$OUT/uninstall.cmd"
 
 # 3b. 使用说明（带 UTF-8 BOM，老版本记事本也能正确显示中文）
 printf '\xEF\xBB\xBF' > "$OUT/README.txt"
@@ -57,41 +66,53 @@ cat >> "$OUT/README.txt" <<'EOF'
 网页收藏 Windows 版使用说明
 ============================
 
-一、启动
-  1. 把 WebVault-win32-x64.zip 解压到任意目录（建议纯英文路径，如 D:\WebVault）。
+一、安装（推荐：双击 install.cmd 一键安装）
+  1. 把 WebVault-win32-x64.zip 完整解压到任意目录（建议纯英文路径，如 D:\WebVault）。
      注意：不要在资源管理器的 zip 预览窗口里直接双击 exe——
      必须"解压全部"到文件夹后再运行，否则程序必需的伴生文件
      （icudtl.dat、*.pak、locales 等）不在同目录，会报 ICU 错误且无窗口。
-  2. 双击 WebVault.exe。
-  3. 首次运行 Windows SmartScreen 可能提示"Windows 已保护你的电脑"（未知发布者）：
-     点"更多信息" -> "仍要运行"即可，只弹一次。
-  4. 如果双击后没反应：
-     - 暂时退出杀毒软件/安全卫士再试；
-     - 或右键 WebVault.exe -> 属性 -> 勾选"解除锁定" -> 确定，再双击；
-     - 还不行就右键"以管理员身份运行"。
-  5. 若提示缺少 dll：去微软官网安装 "VC++ Redistributable x64 (2015-2022)" 后重试。
+  2. 双击 install.cmd：
+     - 自动装到 %LOCALAPPDATA%\Programs\WebVault（不需要管理员权限）
+     - 自动创建桌面 + 开始菜单快捷方式（正式图标）
+     - 注册"设置 -> 应用 -> 网页收藏"卸载入口，可像正常软件一样卸载
+     - 安装完成自动启动
+  3. 之后从桌面图标 / 开始菜单启动；安装目录里的 uninstall.cmd 也可卸载。
+     （收藏数据保留在 %APPDATA%\pagevault-desktop，卸载/重装不丢）
+  4. 不想安装也可以：直接双击 WebVault.exe 便携使用，功能完全一样。
 
-二、排查
+二、首次运行被拦？
+  1. SmartScreen 提示"Windows 已保护你的电脑"（未知发布者）：
+     点"更多信息" -> "仍要运行"，只弹一次。
+  2. 双击没反应：暂时退出杀毒软件/安全卫士；或右键 WebVault.exe -> 属性
+     -> 勾选"解除锁定" -> 确定，再双击。
+  3. 提示缺少 dll：安装微软 "VC++ Redistributable x64 (2015-2022)"。
+
+三、自动更新
+  - 启动 5 秒后自动检查 GitHub 最新版，状态栏出现"可更新"提示，点它即可。
+  - 更新时会自动测速各下载渠道（官方 + 国内镜像），选最快的下载，
+     下载完自动安装并重启。设置里可关闭自动检查。
+  - 也可以手动：设置 -> 关于与更新 -> 检查更新。
+
+四、排查
   - 诊断日志：%APPDATA%\pagevault-desktop\desktop.log
     （按 Win+R 输入 %APPDATA% 回车，进入 pagevault-desktop 文件夹）
-  - 窗口显示"本地服务启动失败"时，日志里有具体原因。
   - 服务意外退出会自动重启（最多 3 次）。
 
-三、保存网页（浏览器扩展已随安装包分发）
+五、保存网页（浏览器扩展已随安装包分发）
   本目录下的 extension 文件夹就是浏览器扩展，安装一次永久使用：
   - Chrome/Edge 打开 chrome://extensions -> 打开"开发者模式"
     -> "加载已解压的扩展程序" -> 选择本目录下的 extension 文件夹。
   - 也可以在阅读器里点底部状态栏的"安装扩展"，按弹窗步骤操作。
   - 安装后底部状态栏显示"扩展已连接"，在任意网页点扩展图标即可保存整页。
 
-四、多端同步（账号）
+六、多端同步（账号）
   - 阅读器右下角"设置"图标 -> 账号与同步：填入你自己的 WebDAV
     （坚果云 / Nextcloud / 群晖等），保存后自动同步。
   - 多台电脑登录同一个 WebDAV 账号，收藏即实时互相同步（默认 30 秒一轮，
     本地保存/删除会立即推送）。
   - 设置里还可导出/导入整库 zip 备份。
 
-五、数据与端口
+七、数据与端口
   - 数据目录：%APPDATA%\pagevault-desktop（删掉该文件夹=清空收藏）
   - 端口：8731（被占用时自动复用已有服务）
 EOF

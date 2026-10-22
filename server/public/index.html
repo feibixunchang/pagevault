@@ -32,12 +32,27 @@
     }
   }
   * { box-sizing: border-box; }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--text); background:var(--bg); height:100vh; display:flex; flex-direction:column; }
+  /* 界面字体：默认跟随系统；设置里可换宋体/楷体/黑体/圆体等（字体名同时覆盖 mac/Win，两端都有效） */
+  :root { --app-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  html[data-font="songti"]  { --app-font: SimSun, "Songti SC", STSong, "Noto Serif CJK SC", "Source Han Serif SC", serif; }
+  html[data-font="kaiti"]   { --app-font: KaiTi, "Kaiti SC", STKaiti, "Noto Serif CJK SC", "Source Han Serif SC", serif; }
+  html[data-font="heiti"]   { --app-font: SimHei, "Heiti SC", STHeiti, "Noto Sans CJK SC", "Source Han Sans SC", sans-serif; }
+  html[data-font="yuanti"]  { --app-font: "Yuanti SC", YouYuan, "Hiragino Maru Gothic ProN", "Noto Sans CJK SC", sans-serif; }
+  html[data-font="yahei"]   { --app-font: "Microsoft YaHei", "Microsoft YaHei UI", "PingFang SC", sans-serif; }
+  html[data-font="pingfang"]{ --app-font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif; }
+  html[data-font="mono"]    { --app-font: "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace; }
+  body { margin:0; font-family:var(--app-font); color:var(--text); background:var(--bg); height:100vh; display:flex; flex-direction:column; }
   header { padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:14px; }
   header h1 { font-size:16px; margin:0; font-weight:600; }
   header .count { color:var(--muted); font-size:13px; }
   #search { margin-left:auto; padding:7px 11px; border:1px solid var(--border); border-radius:8px; width:240px; font-size:13px; outline:none; background:var(--bg); color:var(--text); }
   #search:focus { border-color:var(--accent); }
+  /* 有新版本时出现在搜索框左侧的入口按钮 */
+  .upd-entry { margin-left:10px; padding:6px 12px; border:1px solid var(--accent); border-radius:8px;
+    background:var(--accent-bg); color:var(--accent); font-size:12px; font-weight:600; cursor:pointer;
+    white-space:nowrap; animation:updPulse 1.6s ease-in-out infinite; }
+  .upd-entry:hover { filter:brightness(1.08); }
+  @keyframes updPulse { 0%,100% { box-shadow:0 0 0 0 transparent; } 50% { box-shadow:0 0 0 3px var(--accent-bg); } }
   #refresh { padding:7px 12px; border:1px solid var(--border); border-radius:8px; background:var(--btn-bg); font-size:13px; cursor:pointer; color:var(--btn-text); }
   #refresh:hover { border-color:var(--accent); color:var(--accent); }
   .newflash { animation: flash 1.6s ease-out; }
@@ -81,7 +96,7 @@
   html.theme-dark { --bg:#131518; --panel:#1c1f26; --border:#2e3340; --text:#e8eaed; --muted:#9aa3af; --accent:#6cb2f2; --accent-bg:#1b2a3c; --btn-bg:#23272f; --btn-text:#e8eaed; --danger:#f28b82; --danger-bg:#3a2222; --danger-border:#5a3636; --star:#f2c94c; --star-off:#6b7280; --starred-bg:#3a3320; --starred-text:#f2c94c; --starred-border:#8a7a3a; --flash-bg:#1e3d2f; --rv-bg:#131518; --rv-text:#dde1e6; --rv-pre:#23272f; --rv-byline-border:#2e3340; --frame-bg:#1a1d22; }
 
   /* 设置按钮与下拉面板 */
-  #settingsBtn { padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--btn-bg); font-size:13px; cursor:pointer; color:var(--btn-text); }
+  #settingsBtn { padding:5px 11px; border:1px solid var(--border); border-radius:8px; background:var(--btn-bg); font-size:19px; line-height:1.15; cursor:pointer; color:var(--btn-text); }
   #settingsBtn:hover { border-color:var(--accent); color:var(--accent); }
   #settingsPanel { display:none; position:fixed; top:52px; right:16px; width:250px; background:var(--panel); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 28px rgba(0,0,0,.16); z-index:50; padding:14px 16px; }
   #settingsPanel.open { display:block; }
@@ -136,13 +151,35 @@
   #installModal ol { margin:0 0 14px; padding-left:22px; font-size:13px; line-height:2; }
   #installModal .pathRow { display:flex; gap:8px; align-items:center; background:var(--bg);
     border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-size:12px; margin-bottom:12px; }
-  #installModal .pathRow span { flex:1; word-break:break-all; color:var(--muted); }
+  #installModal .pathRow span { flex:1; word-break:break-all; color:var(--muted); user-select:all; -webkit-user-select:all; cursor:text; }
   #installModal .pathRow button { border:1px solid var(--border); background:var(--panel); color:var(--text);
     border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; white-space:nowrap; }
-  #installModal .actions { display:flex; gap:10px; justify-content:flex-end; }
-  #installModal .actions button { border:1px solid var(--border); background:var(--btn-bg); color:var(--btn-text);
+  #installModal .actions, #updateModal .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
+  #installModal .actions button, #updateModal .actions button { border:1px solid var(--border); background:var(--btn-bg); color:var(--btn-text);
     border-radius:8px; padding:7px 16px; font-size:13px; cursor:pointer; }
-  #installModal .actions button.primary { border-color:var(--accent); color:var(--accent); background:var(--accent-bg); }
+  #installModal .actions button.primary, #updateModal .actions button.primary { border-color:var(--accent); color:var(--accent); background:var(--accent-bg); }
+  #updateModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:210;
+    align-items:center; justify-content:center; }
+  #updateModal.open { display:flex; }
+  #updateModal .card { background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    width:min(460px,92vw); max-height:86vh; overflow:auto; padding:22px 26px; box-shadow:0 14px 50px rgba(0,0,0,.3); }
+  #updateModal h2 { font-size:15px; margin:0 0 4px; }
+  #updateModal .sub { font-size:12px; color:var(--muted); margin:0 0 14px; }
+  #updateModal .card { max-width:460px; }
+  #updateChannels { margin:4px 0 12px; }
+  #updateChannels .ch { display:flex; justify-content:space-between; align-items:center; font-size:12px;
+    padding:7px 10px; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; background:var(--bg); }
+  #updateChannels .ch.best { border-color:var(--accent); background:var(--accent-bg); }
+  #updateChannels .ch .sp { color:var(--muted); }
+  #updateChannels .ch.best .sp { color:var(--accent); font-weight:600; }
+  #updateChannels .ch .tag { font-size:10px; border:1px solid var(--accent); color:var(--accent);
+    border-radius:4px; padding:1px 5px; margin-left:6px; }
+  .progWrap { margin:4px 0 12px; }
+  .progBar { height:6px; border-radius:3px; background:var(--border); overflow:hidden; }
+  .progBar i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
+  .progText { font-size:11px; color:var(--muted); margin:6px 0 0; }
+  .chkLine { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); margin:8px 0 4px; cursor:pointer; }
+  .chkLine input { accent-color:var(--accent); }
 
   /* 设置面板（内容变多：账号同步 + 备份） */
   #settingsPanel { width:340px; max-height:calc(100vh - 72px); overflow:auto; }
@@ -152,6 +189,14 @@
   .field input { padding:6px 9px; border:1px solid var(--border); border-radius:7px; font-size:12px;
     outline:none; background:var(--bg); color:var(--text); width:100%; }
   .field input:focus { border-color:var(--accent); }
+  .field select { padding:6px 9px; border:1px solid var(--border); border-radius:7px; font-size:12px;
+    outline:none; background:var(--bg); color:var(--text); width:100%; cursor:pointer; }
+  .field select:focus { border-color:var(--accent); }
+  /* 深色下下拉选项用系统配色，避免部分平台白底黑字/黑底黑字 */
+  @media (prefers-color-scheme: dark) {
+    .field select option { background:#23272f; color:#e8eaed; }
+  }
+  html.theme-dark .field select option { background:#23272f; color:#e8eaed; }
   .btnrow { display:flex; gap:8px; margin:4px 0 8px; }
   .btnrow button { flex:1; padding:6px 0; border:1px solid var(--border); border-radius:7px;
     background:var(--btn-bg); color:var(--btn-text); font-size:12px; cursor:pointer; }
@@ -167,6 +212,7 @@
     <span class="count" id="count"></span>
     <button id="onlyStarred" title="只看收藏的页面">☆ 收藏</button>
     <input id="search" placeholder="搜索标题或链接…" />
+    <button id="updateEntry" class="upd-entry" style="display:none" title=""></button>
     <button id="fullsearch" title="同时搜索页面正文内容">全文</button>
     <button id="refresh" title="重新加载列表">↻ 刷新</button>
     <button id="settingsBtn" title="设置">⚙</button>
@@ -188,6 +234,20 @@
       <button data-v="system" data-i18n="system">跟随系统</button>
       <button data-v="zh">中文</button>
       <button data-v="en">English</button>
+    </div>
+    <h2 data-i18n="uiFont">界面字体</h2>
+    <p class="panelTip" data-i18n="uiFontTip">只影响软件界面（列表、按钮、状态栏等）；保存的网页内容保持原页面字体不变。</p>
+    <div class="field">
+      <select id="fontSel">
+        <option value="system" data-i18n="fontSystem">跟随系统</option>
+        <option value="songti" data-i18n="fontSong">宋体</option>
+        <option value="kaiti" data-i18n="fontKai">楷体</option>
+        <option value="heiti" data-i18n="fontHei">黑体</option>
+        <option value="yuanti" data-i18n="fontYuan">圆体</option>
+        <option value="yahei" data-i18n="fontYahei">微软雅黑</option>
+        <option value="pingfang" data-i18n="fontPingfang">苹方</option>
+        <option value="mono" data-i18n="fontMono">等宽字体</option>
+      </select>
     </div>
     <h2 data-i18n="accountSync">账号与同步</h2>
     <p class="panelTip" data-i18n="syncTip">登录同一个 WebDAV 账号（坚果云 / Nextcloud / 群晖等），多端即可自动同步收藏，数据只存在你自己的网盘。</p>
@@ -220,6 +280,13 @@
       <button id="importBtn" data-i18n="importBackup">导入备份</button>
     </div>
     <input type="file" id="importFile" accept=".zip,application/zip" style="display:none" />
+    <h2 data-i18n="aboutUpdate">关于与更新</h2>
+    <p class="panelTip" id="aboutVerLine"></p>
+    <div class="btnrow">
+      <button id="checkUpdateBtn" data-i18n="checkUpdate">检查更新</button>
+    </div>
+    <label class="chkLine"><input type="checkbox" id="autoUpdateChk" /><span data-i18n="autoUpdate">启动时自动检查更新</span></label>
+    <div id="updateStatus"></div>
   </div>
   <main>
     <div id="list"></div>
@@ -258,6 +325,22 @@
     </div>
   </div>
 
+  <div id="updateModal">
+    <div class="card">
+      <h2 data-i18n="updateTitle">发现新版本</h2>
+      <p class="sub" id="updateVerLine"></p>
+      <div id="updateChannels"></div>
+      <div class="progWrap" id="updateProgWrap" style="display:none">
+        <div class="progBar"><i id="updateProgFill"></i></div>
+        <p class="progText" id="updateProgText"></p>
+      </div>
+      <div class="actions">
+        <button id="updateLaterBtn" data-i18n="later">以后再说</button>
+        <button id="updateGoBtn" class="primary" data-i18n="downloadInstall">下载并安装</button>
+      </div>
+    </div>
+  </div>
+
   <div id="offline"><div class="txt"><b data-i18n="offline">连不上本地服务</b><span data-i18n="offlineHint"></span></div><button id="retryBtn" data-i18n="retry">重试</button></div>
 
 <script src="/readability.js"></script>
@@ -277,6 +360,9 @@
       starFailed: '收藏操作失败',
       notArticle: '这个页面暂时抽不出正文（可能不是文章型页面）', readFail: '阅读模式失败：',
       settingsTitle: '设置', theme: '外观', lang: '语言', system: '跟随系统', light: '浅色', dark: '深色',
+      uiFont: '界面字体', uiFontTip: '只影响软件界面（列表、按钮、状态栏等）；保存的网页内容保持原页面字体不变。',
+      fontSystem: '跟随系统', fontSong: '宋体', fontKai: '楷体', fontHei: '黑体', fontYuan: '圆体',
+      fontYahei: '微软雅黑', fontPingfang: '苹方', fontMono: '等宽字体',
       from2: '来源', loading: '加载中…', saved: '已保存', exportFail: '导出失败',
       offline: '连不上本地服务（127.0.0.1:8731）', offlineHint: '请确认「网页收藏」客户端正在运行，然后再试一次。', retry: '重试',
       // 状态栏 / 扩展连接
@@ -294,7 +380,16 @@
       step3: '点击「加载已解压的扩展程序」',
       step4: '选择下面这个 extension 文件夹',
       step5: '完成！底部状态栏显示「扩展已连接」后，在任意网页点扩展图标即可保存整页',
-      copyPath: '复制路径', copied: '已复制 ✓', openExtPage: '打开扩展管理页', done: '完成',
+      copyPath: '复制路径', copied: '已复制 ✓', copyFail: '复制失败，请手动选中', openExtPage: '打开扩展管理页', done: '完成',
+      // 关于与更新
+      aboutUpdate: '关于与更新', checkUpdate: '检查更新', autoUpdate: '启动时自动检查更新',
+      curVer: v => '当前版本 v' + v, checkingUpdate: '正在检查更新…', latestVer: '已是最新版本',
+      updateFail: '检查失败', updateTitle: '发现新版本', updateVerLine: (a, b) => `v${a} → v${b}`,
+      later: '以后再说', downloadInstall: '下载并安装', speedTesting: '正在测速各下载渠道…',
+      speedResult: n => `${n} 个渠道可用，已选最快的`, noChannel: '所有下载渠道都连不上，请检查网络',
+      downloading: p => '下载中 ' + p + '%', installing: '正在安装并重启…', installDone: '新版本已安装，正在重启',
+      updateInstalled: '安装完成', fastest: '最快', updInDesktop: '自动更新需要在桌面客户端中进行',
+      verUnknown: '版本未知', newVerEntry: v => '↑ 有新版本 v' + v,
       extPathNone: '（未找到扩展目录，请从安装包里的 extension 文件夹加载）',
       // 账号与同步
       accountSync: '账号与同步',
@@ -325,6 +420,9 @@
       starFailed: 'Star toggle failed',
       notArticle: 'No article content found (maybe not an article page)', readFail: 'Reader mode failed: ',
       settingsTitle: 'Settings', theme: 'Appearance', lang: 'Language', system: 'System', light: 'Light', dark: 'Dark',
+      uiFont: 'Interface font', uiFontTip: 'Applies to the app UI only (list, buttons, status bar); saved pages keep their original fonts.',
+      fontSystem: 'Follow system', fontSong: 'Songti (serif)', fontKai: 'Kaiti', fontHei: 'Heiti (sans)', fontYuan: 'Rounded',
+      fontYahei: 'Microsoft YaHei', fontPingfang: 'PingFang', fontMono: 'Monospace',
       from2: 'Source', loading: 'Loading…', saved: 'Saved', exportFail: 'Export failed',
       offline: 'Cannot reach the local service (127.0.0.1:8731)',
       offlineHint: 'Make sure the Web Vault desktop app is running, then try again.', retry: 'Retry',
@@ -343,7 +441,16 @@
       step3: 'Click "Load unpacked"',
       step4: 'Select the extension folder shown below',
       step5: 'Done! Once the status bar shows "Extension connected", click the extension icon on any page to save it',
-      copyPath: 'Copy path', copied: 'Copied ✓', openExtPage: 'Open extensions page', done: 'Done',
+      copyPath: 'Copy path', copied: 'Copied ✓', copyFail: 'Copy failed — select manually', openExtPage: 'Open extensions page', done: 'Done',
+      // About & update
+      aboutUpdate: 'About & Updates', checkUpdate: 'Check for Updates', autoUpdate: 'Check for updates on launch',
+      curVer: v => 'Version v' + v, checkingUpdate: 'Checking for updates…', latestVer: 'You are up to date',
+      updateFail: 'Check failed', updateTitle: 'New Version Available', updateVerLine: (a, b) => `v${a} → v${b}`,
+      later: 'Later', downloadInstall: 'Download & Install', speedTesting: 'Testing download channels…',
+      speedResult: n => `${n} channels available — fastest selected`, noChannel: 'No channel reachable, check your network',
+      downloading: p => 'Downloading ' + p + '%', installing: 'Installing and restarting…', installDone: 'Installed — restarting',
+      updateInstalled: 'Done', fastest: 'Fastest', updInDesktop: 'Auto-update runs in the desktop app',
+      verUnknown: 'unknown', newVerEntry: v => '↑ Update available v' + v,
       extPathNone: '(Extension folder not found — load it from the extension/ folder in the download)',
       // Account & sync
       accountSync: 'Account & Sync',
@@ -403,6 +510,21 @@
   }
   darkMQ.addEventListener?.('change', () => { if (prefs.theme === 'system') applyTheme(); });
 
+  // ---------- 界面字体应用 ----------
+  const FONT_KEYS = ['system', 'songti', 'kaiti', 'heiti', 'yuanti', 'yahei', 'pingfang', 'mono'];
+  function applyFont() {
+    const v = FONT_KEYS.includes(prefs.font) ? prefs.font : 'system';
+    if (v === 'system') delete document.documentElement.dataset.font;
+    else document.documentElement.dataset.font = v;
+    const sel = document.getElementById('fontSel');
+    if (sel) sel.value = v;
+  }
+  document.getElementById('fontSel').addEventListener('change', (ev) => {
+    prefs.font = ev.target.value;
+    applyFont();
+    savePrefs();
+  });
+
   // ---------- 语言应用 ----------
   function applyI18n() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
@@ -415,6 +537,7 @@
     searchEl.placeholder = fullSearch ? t('fullsearchPh') : t('searchPh');
     document.getElementById('onlyStarred').textContent = onlyStarred ? t('starredOn') : t('starred');
     document.querySelectorAll('#langSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === prefs.lang));
+    applyFont();
     countEl.textContent = pages.length ? t('count', pages.length) : '';
     render(searchEl.value);
     renderStatus();
@@ -656,6 +779,13 @@
       try {
         const d = JSON.parse(ev.data);
         if (d.type === 'deleted') { applyDeleted(d.id); return; }
+        if (d.type === 'prefs' && d.prefs) {
+          // 其他端改了外观/语言/字体/同步配置：本地应用，不重载页面，也不回写（避免回环）
+          const { sync: _s, ...rest } = d.prefs;
+          prefs = Object.assign({}, prefs, rest);
+          applyTheme(); applyI18n();
+          return;
+        }
         if (d.type === 'synced' || d.type === 'imported') { refreshStatus(); return; }
         if (d.type === 'starred') {
           const p = pages.find(x => x.id === d.id);
@@ -752,17 +882,200 @@
   document.getElementById('installDoneBtn').addEventListener('click', () => installModal.classList.remove('open'));
   installModal.addEventListener('click', (ev) => { if (ev.target === installModal) installModal.classList.remove('open'); });
   document.getElementById('copyPathBtn').addEventListener('click', async (ev) => {
-    const btn = ev.target;
-    try {
-      await navigator.clipboard.writeText(extPath.textContent);
-      btn.textContent = t('copied');
+    const btn = ev.currentTarget;
+    const text = (extPath.textContent || '').trim();
+    if (!text || text === t('extPathNone')) {
+      btn.textContent = t('copyFail');
       setTimeout(() => { btn.textContent = t('copyPath'); }, 1500);
-    } catch { /* 剪贴板不可用就手动选择 */ }
+      return;
+    }
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch {
+      // 剪贴板 API 不可用（非安全上下文/被浏览器策略拦）：execCommand 兜底
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;top:-999px;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch { ok = false; }
+    }
+    if (!ok) {
+      // 最后兜底：让用户手动选中复制
+      const r = document.createRange();
+      r.selectNodeContents(extPath);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+    btn.textContent = ok ? t('copied') : t('copyFail');
+    setTimeout(() => { btn.textContent = t('copyPath'); }, 1500);
   });
   document.getElementById('openExtPageBtn').addEventListener('click', () => {
     // Electron 窗口里会被主进程拦截、转交系统浏览器打开；普通浏览器若被拦，按步骤手动输入即可
     try { window.open('chrome://extensions/', '_blank'); } catch { /* 忽略 */ }
   });
+
+  // ---------- 关于与更新（仅 Electron 桌面端有 window.pv） ----------
+  const pv = window.pv || null;
+  const updateModal = document.getElementById('updateModal');
+  const updateVerLine = document.getElementById('updateVerLine');
+  const updateChannels = document.getElementById('updateChannels');
+  const updateProgWrap = document.getElementById('updateProgWrap');
+  const updateProgFill = document.getElementById('updateProgFill');
+  const updateProgText = document.getElementById('updateProgText');
+  const updateGoBtn = document.getElementById('updateGoBtn');
+  const updateLaterBtn = document.getElementById('updateLaterBtn');
+  const updateEntry = document.getElementById('updateEntry');
+  const updateStatus = document.getElementById('updateStatus');
+  let updateTag = '';
+  let channelList = [];
+  let chosenChannel = null;
+
+  // 顶部搜索框左侧的"有新版本"入口（检查到新版时出现，点击打开更新弹窗）
+  function showUpdateEntry(tag) {
+    updateTag = tag;
+    updateEntry.textContent = t('newVerEntry', tag.replace(/^v/, ''));
+    updateEntry.title = t('updateTitle') + ' ' + tag;
+    updateEntry.style.display = '';
+  }
+
+  if (!pv) {
+    // 浏览器直开阅读器：隐藏更新入口，给出说明
+    const aboutLine = document.getElementById('aboutVerLine');
+    if (aboutLine) aboutLine.textContent = t('updInDesktop');
+    const ck = document.getElementById('checkUpdateBtn');
+    if (ck) ck.style.display = 'none';
+    const chk = document.getElementById('autoUpdateChk');
+    if (chk) chk.parentElement.style.display = 'none';
+  } else {
+    pv.invoke('updater:version').then(v => {
+      const line = document.getElementById('aboutVerLine');
+      if (line) line.textContent = t('curVer', v || t('verUnknown'));
+    }).catch(() => {});
+    // 主进程 updater 事件 → 更新 UI
+    pv.on('updater:event', (st) => {
+      if (st.status === 'available' && st.remoteVersion) showUpdateEntry(st.remoteVersion);
+      if (st.status === 'downloading') {
+        const pct = Math.round((st.progress || 0) * 100);
+        updateProgWrap.style.display = 'block';
+        updateProgFill.style.width = pct + '%';
+        updateProgText.textContent = t('downloading', pct);
+      } else if (st.status === 'ready') {
+        updateProgText.textContent = t('installDone');
+      }
+    });
+    // 菜单「检查更新…」→ 打开设置面板并触发检查
+    pv.on('updater:menu-check', () => {
+      document.getElementById('settingsPanel').classList.add('open');
+      checkUpdate();
+    });
+    updateEntry.addEventListener('click', () => { if (updateTag) openUpdateModal(updateTag); });
+  }
+
+  async function checkUpdate() {
+    if (!pv) return;
+    updateStatus.textContent = t('checkingUpdate');
+    try {
+      const r = await pv.invoke('updater:check');
+      if (r && r.hasUpdate && r.tag) {
+        updateStatus.textContent = '';
+        showUpdateEntry(r.tag);
+        openUpdateModal(r.tag);
+      } else if (r && r.tag) {
+        updateStatus.textContent = t('latestVer');
+      } else {
+        updateStatus.textContent = t('updateFail');
+      }
+    } catch (e) {
+      updateStatus.textContent = t('updateFail') + '：' + (e && e.message ? e.message : e);
+    }
+  }
+
+  function openUpdateModal(tag) {
+    updateTag = tag;
+    updateVerLine.textContent = t('updateVerLine', localVersionCache || '?', tag.replace(/^v/, ''));
+    updateChannels.innerHTML = '<p class="progText">' + t('speedTesting') + '</p>';
+    updateProgWrap.style.display = 'none';
+    updateGoBtn.disabled = true;
+    updateModal.classList.add('open');
+    // 测速各渠道（后台进程并发 Range 测速，选最快）
+    pv.invoke('updater:channels', tag).then(list => {
+      channelList = list || [];
+      renderChannels();
+    }).catch(() => {
+      updateChannels.innerHTML = '<p class="progText">' + t('noChannel') + '</p>';
+    });
+  }
+
+  function renderChannels() {
+    if (!channelList.length) {
+      updateChannels.innerHTML = '<p class="progText">' + t('noChannel') + '</p>';
+      return;
+    }
+    chosenChannel = channelList[0];
+    updateChannels.innerHTML = channelList.map((c, i) => `
+      <div class="ch ${i === 0 ? 'best' : ''}" data-url="${c.url}">
+        <span>${c.name}${i === 0 ? '<span class="tag">' + t('fastest') + '</span>' : ''}</span>
+        <span class="sp">${c.bps} KB/s</span>
+      </div>`).join('') + '<p class="progText">' + t('speedResult', channelList.length) + '</p>';
+    updateChannels.querySelectorAll('.ch').forEach(el => {
+      el.addEventListener('click', () => {
+        updateChannels.querySelectorAll('.ch').forEach(x => x.classList.remove('best'));
+        el.classList.add('best');
+        chosenChannel = channelList.find(c => c.url === el.dataset.url) || chosenChannel;
+      });
+    });
+    updateGoBtn.disabled = false;
+  }
+
+  updateLaterBtn.addEventListener('click', () => updateModal.classList.remove('open'));
+  updateModal.addEventListener('click', (ev) => { if (ev.target === updateModal) updateModal.classList.remove('open'); });
+  updateGoBtn.addEventListener('click', async () => {
+    if (!chosenChannel) return;
+    updateGoBtn.disabled = true;
+    updateProgWrap.style.display = 'block';
+    updateProgText.textContent = t('downloading', 0);
+    try {
+      const zipPath = await pv.invoke('updater:download', chosenChannel.url);
+      updateProgText.textContent = t('installing');
+      await pv.invoke('updater:install', zipPath);
+      // macOS：install 里已安排 relaunch；这里给用户最后一眼确认
+      updateProgText.textContent = t('installDone');
+      updateGoBtn.textContent = t('updateInstalled');
+    } catch (e) {
+      updateProgText.textContent = t('updateFail') + '：' + (e && e.message ? e.message : e);
+      updateGoBtn.disabled = false;
+    }
+  });
+
+  // 设置面板里的检查更新按钮 + 自动更新开关
+  document.getElementById('checkUpdateBtn').addEventListener('click', checkUpdate);
+  (async () => {
+    if (!pv) return;
+    const chk = document.getElementById('autoUpdateChk');
+    try {
+      const prefs = await (await fetch('/api/prefs')).json();
+      chk.checked = prefs.autoUpdate !== false;
+    } catch { chk.checked = true; }
+    chk.addEventListener('change', async () => {
+      try {
+        await fetch('/api/prefs', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ autoUpdate: chk.checked })
+        });
+      } catch { /* 忽略 */ }
+    });
+  })();
+  // 版本号缓存（更新弹窗的 旧版本 → 新版本 显示用）
+  let localVersionCache = '';
+  if (pv) pv.invoke('updater:version').then(v => { localVersionCache = v || ''; }).catch(() => {});
 
   // ---------- 账号与同步（WebDAV：同一账号 = 多端同步） ----------
   const syncUrl = document.getElementById('syncUrl');

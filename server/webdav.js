@@ -11,10 +11,21 @@ const { URL } = require('url');
 const TIMEOUT = 45000;
 
 class WebDAVError extends Error {
-  constructor(status, method, path) {
-    super(`WebDAV ${method} ${path} -> HTTP ${status}`);
+  constructor(status, method, path, detail) {
+    let msg = `WebDAV ${method} ${path} -> HTTP ${status}`;
+    if (detail) msg += '（' + detail + '）';
+    super(msg);
     this.status = status;
+    this.detail = detail || '';
   }
+}
+
+// 把服务器错误响应体压成人话（很多 WebDAV 服务器返回 XML/纯文本说明，排障就靠它）
+function errorDetail(r) {
+  if (!r || !r.body || !r.body.length) return '';
+  let txt = r.body.toString('utf8').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (txt.length > 160) txt = txt.slice(0, 160) + '…';
+  return txt;
 }
 
 class WebDAV {
@@ -31,12 +42,22 @@ class WebDAV {
     this.authHeader = 'Basic ' + Buffer.from(String(user) + ':' + String(pass), 'utf8').toString('base64');
   }
 
-  // relPath: '' = 根目录；'pages/a.html' = 相对路径
+  // relPath: '' = basePath 自身；'pages/a.html' = 相对 basePath 的路径
   req(method, relPath, opts) {
+    const clean = String(relPath || '').replace(/^\/+/, '');
+    // 路径穿越防护：远端 PROPFIND 返回的文件名会流到这里，不能信任
+    if (clean.split('/').some(seg => seg === '..' || seg === '.')) {
+      return Promise.reject(new Error('非法路径：' + clean));
+    }
+    return this._request(method, this.basePath + (clean ? '/' + clean : ''), opts);
+  }
+
+  // 发一个完整 URL 路径的请求（urlPath 必须以 / 开头或为空串）。
+  // _mkcolChain 需要逐级创建 basePath 的前缀目录，那些路径不在 basePath 之下，
+  // 不能走 req() 的拼接，必须用 _request 直接发。
+  _request(method, urlPath, opts) {
     opts = opts || {};
     const self = this;
-    const clean = String(relPath || '').replace(/^\/+/, '');
-    const urlPath = self.basePath + (clean ? '/' + clean : '');
     const headers = {
       Authorization: self.authHeader || '',
       Depth: opts.depth || '0'
@@ -44,7 +65,7 @@ class WebDAV {
     if (opts.contentType) headers['Content-Type'] = opts.contentType; // undefined 会让 Node 抛错
     Object.assign(headers, opts.headers || {});
     return new Promise((resolve, reject) => {
-      const r = self.client.request(self.origin + urlPath, { method, headers }, (res) => {
+      const r = self.client.request(self.origin + (urlPath || ''), { method, headers }, (res) => {
         const chunks = [];
         res.on('data', c => chunks.push(c));
         res.on('end', () => resolve({
@@ -73,17 +94,30 @@ class WebDAV {
     return { ok: false, status: r.status, message: '服务器返回 HTTP ' + r.status };
   }
 
-  // 确保远端目录存在（MKCOL，409 时逐级创建）
+  // 确保远端目录存在。relPath 相对 basePath；'' = 只确保 basePath 自身存在
+  // （basePath 可能有多级，如 /dav/pagevault，必须逐级 MKCOL，否则 PUT 子路径会 404/409）
   async ensureDir(relPath) {
-    const parts = String(relPath || '').split('/').filter(Boolean);
-    let cur = '';
-    for (const part of parts) {
-      cur = cur ? cur + '/' + part : part;
-      const r = await this.req('MKCOL', cur);
-      if (r.status >= 200 && r.status < 300) continue;   // 创建成功
-      if (r.status === 405) continue;                     // 已存在（MKCOL 对已有目录返回 405）
-      if (r.status === 409) { await this.ensureDir(cur.split('/').slice(0, -1).join('/')); continue; }
-      if (r.status >= 400) throw new WebDAVError(r.status, 'MKCOL', cur);
+    const full = this.basePath.split('/').filter(Boolean)
+      .concat(String(relPath || '').split('/').filter(Boolean));
+    await this._mkcolChain(full);
+  }
+
+  // 逐级创建 full 路径数组的每一级（full 是完整 URL 路径分段，不含 basePath 之外的前缀）；
+  // 409/404（父目录不存在）时先建父级再重试本级
+  async _mkcolChain(full) {
+    for (let i = 0; i < full.length; i++) {
+      const cur = '/' + full.slice(0, i + 1).join('/'); // 完整路径，如 /likeweb/pages
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const r = await this._request('MKCOL', cur);
+        if ((r.status >= 200 && r.status < 300) || r.status === 405) break; // 建好 / 已存在
+        // 个别服务器（及某些代理层）用 409 + "already exists" 表达"已存在"，按已存在处理
+        if (r.status === 409 && /EEXIST|already exists|已存在/i.test(errorDetail(r))) break;
+        if ((r.status === 409 || r.status === 404) && i > 0) {
+          await this._mkcolChain(full.slice(0, i)); // 先把父级建起来
+          continue;                                 // 再重试本级
+        }
+        throw new WebDAVError(r.status, 'MKCOL', cur, errorDetail(r));
+      }
     }
   }
 
@@ -95,7 +129,7 @@ class WebDAV {
       body: '<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/></d:prop></d:propfind>'
     });
     if (r.status === 404) return [];
-    if (r.status !== 207 && (r.status < 200 || r.status >= 300)) throw new WebDAVError(r.status, 'PROPFIND', relPath || '/');
+    if (r.status !== 207 && (r.status < 200 || r.status >= 300)) throw new WebDAVError(r.status, 'PROPFIND', relPath || '/', errorDetail(r));
     const xml = r.body.toString('utf8');
     const out = [];
     // 按 <response> 块切分，取每块的 href 与 resourcetype
@@ -116,34 +150,34 @@ class WebDAV {
   async get(relPath) {
     const r = await this.req('GET', relPath);
     if (r.status === 404) return null;
-    if (r.status < 200 || r.status >= 300) throw new WebDAVError(r.status, 'GET', relPath);
+    if (r.status < 200 || r.status >= 300) throw new WebDAVError(r.status, 'GET', relPath, errorDetail(r));
     return r.body;
   }
 
   async put(relPath, body) {
-    const r = await this.req('PUT', relPath, {
+    const send = () => this.req('PUT', relPath, {
       contentType: 'application/octet-stream',
       headers: { 'Content-Length': String(body.length) },
       body
     });
+    let r = await send();
     if (r.status >= 200 && r.status < 300) return true;
-    // 父目录不存在：建一层再重试一次
+    // 父目录不存在（严格服务器 409，宽松服务器 404）：逐级建好再重试一次
     if (r.status === 409 || r.status === 404) {
       const parent = String(relPath).split('/').slice(0, -1).join('/');
       if (parent) {
-        await this.ensureDir(parent);
-        const r2 = await this.req('PUT', relPath, { contentType: 'application/octet-stream', body });
-        if (r2.status >= 200 && r2.status < 300) return true;
-        throw new WebDAVError(r2.status, 'PUT', relPath);
+        try { await this.ensureDir(parent); } catch { /* 建失败也重试一次 PUT，让真实错误暴露出来 */ }
+        r = await send();
+        if (r.status >= 200 && r.status < 300) return true;
       }
     }
-    throw new WebDAVError(r.status, 'PUT', relPath);
+    throw new WebDAVError(r.status, 'PUT', relPath, errorDetail(r));
   }
 
   async del(relPath) {
     const r = await this.req('DELETE', relPath);
     if (r.status >= 200 && r.status < 300 || r.status === 404) return true;
-    throw new WebDAVError(r.status, 'DELETE', relPath);
+    throw new WebDAVError(r.status, 'DELETE', relPath, errorDetail(r));
   }
 }
 
