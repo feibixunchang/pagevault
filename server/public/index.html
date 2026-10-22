@@ -1474,7 +1474,7 @@
       const d = await r.json();
       document.getElementById('srcToken').value = d.token || '';
       const port = d.port || (location.port || '');
-      const addrs = (d.addresses || []).map(a => 'http://' + a.address + (port ? ':' + port : ''));
+      const addrs = (d.addresses || []).map(a => a.url || ('http://' + a.address + (port ? ':' + port : '')));
       const el = document.getElementById('srcAddrs');
       el.textContent = addrs.length ? t('srcAddrs', addrs.join('   ')) : '';
     } catch { /* 服务端不可用就不显示 */ }

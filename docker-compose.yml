@@ -23,6 +23,9 @@ services:
       PORT: "8731"
       PUID: "1000"
       PGID: "1000"
+      # 容器里看不到宿主 IP，设置面板的「本机地址」会退化成 172.x 内网地址。
+      # 填上宿主在局域网里的地址（多网卡用逗号分隔），别人才知道该连哪个。
+      # PAGEVAULT_PUBLIC_ADDR: "192.168.1.10"
     volumes:
       # 数据（页面 HTML + index.json + 偏好 + 日志）全部落在这里，删容器不丢数据
       - ./data:/data

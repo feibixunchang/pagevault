@@ -16,6 +16,8 @@ services:
       PORT: "8731"
       PUID: "1000"
       PGID: "1000"
+      # 容器里看不到宿主 IP，填上宿主局域网地址，「本机地址」才不会显示成 172.x
+      # PAGEVAULT_PUBLIC_ADDR: "192.168.1.10"
     volumes:
       # 数据落在 server/data（删容器不丢）
       - ./data:/data
