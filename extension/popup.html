@@ -3,16 +3,24 @@
 <head>
 <meta charset="utf-8" />
 <style>
-  body { width: 280px; margin:0; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:#1f2933; }
+  :root {
+    --bg:#ffffff; --text:#1f2933; --muted:#6b7280; --border:#e3e6ea;
+    --accent:#185fa5; --accent-hover:#0c447c; --btn:#ffffff;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1c1f26; --text:#e8eaed; --muted:#9aa3af; --border:#2e3340; --accent:#6cb2f2; --accent-hover:#3d8fd0; --btn:#23272f; }
+  }
+  body { width: 280px; margin:0; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--text); background:var(--bg); }
   .card { padding:16px; }
   h1 { font-size:15px; margin:0 0 2px; font-weight:600; }
-  .sub { font-size:12px; color:#6b7280; margin:0 0 14px; }
-  #capture { width:100%; padding:10px; border:0; border-radius:9px; background:#185fa5; color:#fff; font-size:14px; cursor:pointer; }
-  #capture:hover { background:#0c447c; }
+  .sub { font-size:12px; color:var(--muted); margin:0 0 14px; }
+  #capture { width:100%; padding:10px; border:0; border-radius:9px; background:var(--accent); color:#fff; font-size:14px; cursor:pointer; }
+  #capture:hover { background:var(--accent-hover); }
   .row { display:flex; gap:6px; margin-top:12px; }
-  #server { flex:1; padding:7px 9px; border:1px solid #e3e6ea; border-radius:7px; font-size:12px; outline:none; min-width:0; }
-  #save { padding:7px 12px; border:1px solid #e3e6ea; border-radius:7px; background:#fff; font-size:12px; cursor:pointer; }
-  #status { margin-top:12px; font-size:12px; color:#6b7280; min-height:16px; }
+  #server { flex:1; padding:7px 9px; border:1px solid var(--border); border-radius:7px; font-size:12px; outline:none; min-width:0; background:var(--bg); color:var(--text); }
+  #save { padding:7px 12px; border:1px solid var(--border); border-radius:7px; background:var(--btn); font-size:12px; cursor:pointer; color:var(--text); }
+  #status { margin-top:12px; font-size:12px; color:var(--muted); min-height:16px; }
 </style>
 </head>
 <body>
