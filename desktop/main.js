@@ -177,7 +177,10 @@ function startServer(cb) {
     log('forking server:', script, 'node:', process.versions.node, 'platform:', process.platform);
     const env = Object.assign({}, process.env, {
       PORT: String(PORT),
-      PAGEVAULT_DATA: path.join(app.getPath('userData'))
+      PAGEVAULT_DATA: path.join(app.getPath('userData')),
+      // 让服务端知道自己是"桌面壳里跑着"，状态栏才会显示「桌面版 v1.0.0」
+      // 而不是「网页版」（Docker 端由镜像里的 PAGEVAULT_PLATFORM=docker 覆盖）
+      PAGEVAULT_PLATFORM: 'desktop'
     });
     try {
       serverProc = fork(script, [], { env, silent: false });
