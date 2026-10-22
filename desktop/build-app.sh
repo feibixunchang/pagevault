@@ -11,6 +11,10 @@ SERVER=$ROOT/server
 SRC_ELECTRON=$DESKTOP/node_modules/electron/dist/Electron.app
 OUT=$DESKTOP/dist/网页收藏.app
 
+# 0. 版本号单一来源：desktop/package.json → server/server.js、server/package.json、
+#    extension/manifest.json（避免各端版本号错位导致更新判断失效）
+node "$ROOT/scripts/stamp-version.js"
+
 mkdir -p "$DESKTOP/dist"
 
 # 1. Sync the vanilla Electron bundle (binary + frameworks + helpers).

@@ -1,10 +1,17 @@
 {
   "manifest_version": 3,
   "name": "网页收藏 · 整页保存",
-  "version": "0.5.0",
+  "version": "0.6.1",
   "description": "一键把当前网页完整保存到「网页收藏」同步库，随时离线回看（基于 SingleFile 高保真捕获）。",
-  "permissions": ["activeTab", "scripting", "storage", "alarms"],
-  "background": { "service_worker": "background.js" },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "alarms"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "host_permissions": [
     "<all_urls>",
     "http://localhost:8731/*",
@@ -16,8 +23,12 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["lib/single-file.js"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "lib/single-file.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

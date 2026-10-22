@@ -7,6 +7,9 @@ set -e
 ROOT=/Users/lovezjkxlove/WorkBuddy/2026-10-22-13-27-54/pagevault
 DESKTOP=$ROOT/desktop
 SERVER=$ROOT/server
+
+# 0. 版本号单一来源同步（与 macOS 端同一份脚本，保证两端版本一致）
+node "$ROOT/scripts/stamp-version.js"
 WINBUILD=$DESKTOP/.win-build
 ELECTRON_VER=31.7.7
 ZIP=$WINBUILD/electron-v${ELECTRON_VER}-win32-x64.zip

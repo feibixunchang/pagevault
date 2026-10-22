@@ -29,6 +29,7 @@ pagevault/
 │   ├── server.js         # 零依赖 Node 服务：保存/列表/单页/删除/收藏/全文搜索 + SSE 实时推送
 │   ├── sync.js           # WebDAV 多端同步引擎（拉取/合并/推送/删除传播/孤儿自愈）
 │   ├── webdav.js         # 极简 WebDAV 客户端（PROPFIND/GET/PUT/DELETE/MKCOL）
+│   ├── dnsx.js           # 域名解析兜底：系统 DNS 失败自动走 DoH，A/AAAA 双栈
 │   ├── zip.js            # store 模式 zip 读写（整库备份导出/导入）
 │   ├── public/index.html # 阅读器 UI（含底部状态栏/设置面板/安装引导）
 │   ├── public/readability.js # Mozilla Readability（阅读模式抽取正文）
@@ -37,7 +38,7 @@ pagevault/
 ├── extension/           # Chrome/Edge MV3 扩展（v0.6，基于 SingleFile + 心跳）
 │   ├── manifest.json
 │   ├── popup.html / popup.js
-│   ├── background.js     # 跨域抓图内联 + 每分钟心跳（状态栏"扩展已连接"）
+│   ├── background.js     # 跨域抓图内联 + 30 秒心跳（浏览器有活动时立即补发）
 │   ├── lib/single-file.js # SingleFile 官方 standalone 库（高保真捕获，自包含）
 │   └── README.md
 ├── desktop/             # 桌面端（Electron；macOS + Windows 同一工程）
@@ -93,9 +94,27 @@ cd desktop && bash build-win.sh
 - macOS：下载 zip → 解压替换 `.app`（旧版自动备份成 `.bak-时间戳`）→ 重启
 - Windows：下载 zip → 解压 → 自动替换安装目录 → 重启
 - 版本探测走 `github.com/.../releases/latest` 的 302 重定向（不依赖 API，国内网络更稳）；
-  网络请求在 Node 原生失败时自动降级 curl 子进程（企业代理环境也能用）
+  网络请求在 Node 原生失败时自动降级 curl 子进程（企业代理环境也能用）；
+  解析同样走 DNS 兜底（DoH），系统 DNS 坏了也能检查更新
 
-## 界面字体
+## 版本号（单一来源）
+
+`desktop/package.json` 的 `version` 是唯一真源，构建前自动同步到：
+
+- `server/server.js` 的 `VERSION`（随 `/api/status` 下发给阅读器）
+- `server/package.json`、`extension/manifest.json`
+
+界面上可见版本号的位置：**窗口标题栏**（网页收藏 · 我的网页库 v0.6.1）、
+**底部状态栏右侧**、**设置 → 关于与更新**、**浏览器扩展 popup 底部**（扩展版本 + 阅读器版本）。
+
+手动同步/校验：
+
+```bash
+node scripts/stamp-version.js          # 同步
+node scripts/stamp-version.js --check  # 只校验（不一致则退出码 1）
+```
+
+## 界面字体与字号
 
 设置 → 外观 →「界面字体」：
 
@@ -104,6 +123,30 @@ cd desktop && bash build-win.sh
   （字体栈同时写了 mac 和 Windows 的字体名，双端都有效；只影响软件界面，
   保存的网页内容保持原页面字体）
 - 偏好通过服务端同步，**多端实时生效**（SSE 广播，改一端其他端立即跟随）
+
+「界面字体大小」：**小 / 标准 / 大 / 特大** 四档，整体缩放界面（文字、按钮、列表一起放大，
+等效浏览器缩放，不会出现错位）；同样多端实时同步。
+
+## 网络与 DNS 兼容（重要）
+
+同步和自动更新都不依赖系统 DNS 的"运气"：
+
+- **DNS 兜底**：系统解析失败（VPN/加速器接管 DNS 后失效、DNS 服务器抽风）时，
+  自动改用 DoH（阿里 223.5.5.5 / 腾讯 1.12.12.12，直连 IP 不依赖本机 DNS）解析
+- **双栈自动切换**：A/AAAA 一起查，IPv4 优先；遇到**只有 IPv6 记录**的域名也能连上，
+  并在连不通时明确提示"该域名只有 IPv6 地址，建议补一条 A 记录"
+- **多地址重试**：一个地址连不上会依次尝试其余地址，而不是直接报错
+- **错误信息可读**：域名解析失败 / 连接被拒 / 连接超时 / 证书错误分别给出对应建议；
+  还会顺带探测公网 DNS 是否整体不可用，避免把本机网络问题误判成"服务器挂了"
+
+常见排查：
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `域名解析失败` | 域名写错 / 无记录 / 本机 DNS 失效 | 用 `dig 域名 A` / `dig 域名 AAAA` 核对；本机 DNS 问题换 223.5.5.5 |
+| 只有 AAAA 才能解析 | 域名只配了 IPv6 | 在域名服务商补一条 A 记录（IPv4） |
+| `连接被拒` | 端口/路径错，或服务没起 | 浏览器直接访问该地址看是否有响应 |
+| `认证失败 401` | 账号或密码错 | 坚果云等要用**应用密码**，不是登录密码 |
 
 ## 账号与多端同步（WebDAV）
 

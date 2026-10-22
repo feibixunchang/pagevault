@@ -11,7 +11,7 @@ const crypto = require('crypto');
 const { SyncEngine, extractMeta, ONLINE_WINDOW_MS } = require('./sync');
 const { zipStore, zipRead } = require('./zip');
 
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 const PORT = process.env.PORT || 8731;
 const ROOT = __dirname;
 const DATA_ROOT = process.env.PAGEVAULT_DATA || path.join(ROOT, 'data');
@@ -32,11 +32,35 @@ function log() {
   console.log.apply(console, arguments);
 }
 
+// ---------- 公网 DNS 健康探测 ----------
+// 只在同步报"域名解析失败"时才调用：用来区分"只有这个域名解析不了"和"本机 DNS 整体瘫痪"。
+// 结果缓存 20 秒，避免状态栏 5 秒轮询把探测打爆。
+let dnsProbeCache = { at: 0, ok: null };
+function dnsProbe() {
+  const now = Date.now();
+  if (dnsProbeCache.ok !== null && now - dnsProbeCache.at < 20000) return Promise.resolve(dnsProbeCache.ok);
+  const dns = require('dns');
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      dnsProbeCache = { at: Date.now(), ok };
+      resolve(ok);
+    };
+    const timer = setTimeout(() => finish(false), 4000);
+    try {
+      dns.lookup('www.baidu.com', (err) => { clearTimeout(timer); finish(!err); });
+    } catch { clearTimeout(timer); finish(false); }
+  });
+}
+
 // ---------- 扩展心跳状态（阅读器状态栏显示"扩展已连接"） ----------
-let extState = { lastSeen: 0 };
+let extState = { lastSeen: 0, version: '' };
 try { extState = Object.assign(extState, JSON.parse(fs.readFileSync(EXT_STATE_FILE, 'utf8'))); } catch { /* 无文件用默认 */ }
-function touchExtension() {
+function touchExtension(version) {
   extState.lastSeen = Date.now();
+  if (version) extState.version = version;
   try { fs.writeFileSync(EXT_STATE_FILE, JSON.stringify(extState)); } catch { /* 只读环境忽略 */ }
 }
 function extensionOnline() {
@@ -270,6 +294,7 @@ const server = http.createServer((req, res) => {
       if (['system', 'light', 'dark'].includes(prefs.theme)) clean.theme = prefs.theme;
       if (['system', 'zh', 'en'].includes(prefs.lang)) clean.lang = prefs.lang;
       if (['system', 'songti', 'kaiti', 'heiti', 'yuanti', 'yahei', 'pingfang', 'mono'].includes(prefs.font)) clean.font = prefs.font;
+      if (['s', 'm', 'l', 'xl'].includes(prefs.fontSize)) clean.fontSize = prefs.fontSize;
       if (typeof prefs.autoUpdate === 'boolean') clean.autoUpdate = prefs.autoUpdate;
       if (prefs.sync && typeof prefs.sync === 'object') {
         // 同步配置（WebDAV 账号 = 多端同步的同一账号）
@@ -296,20 +321,36 @@ const server = http.createServer((req, res) => {
     const list = loadIndex();
     const s = sync.getStatus();
     const cfg = syncConfig();
-    send(res, 200, JSON.stringify({
-      ok: true, version: VERSION, port: PORT,
-      extension: { lastSeen: extState.lastSeen, online: extensionOnline() },
-      extensionPath: extensionDir(),
-      sync: { configured: !!(cfg.url && cfg.user), status: s.status, lastSyncAt: s.lastSyncAt, lastError: s.lastError, lastStats: s.lastStats },
-      counts: { total: list.length, starred: list.filter(m => m.starred).length }
-    }), { 'Content-Type': 'application/json; charset=utf-8' });
+    // 同步报"域名解析失败"时，顺手探一下公网 DNS：能区分"只是这个域名坏了"还是"本机 DNS 整体不可用"
+    const needDnsProbe = /域名解析失败/.test(s.lastError || '');
+    const respond = (dnsOk) => {
+      let lastError = s.lastError;
+      if (needDnsProbe && dnsOk === false) {
+        lastError += '（本机 DNS 整体不可用：连 www.baidu.com 也解析不了，请检查网络后再试）';
+      }
+      send(res, 200, JSON.stringify({
+        ok: true, version: VERSION, port: PORT,
+        extension: { lastSeen: extState.lastSeen, version: extState.version, online: extensionOnline() },
+        extensionPath: extensionDir(),
+        sync: { configured: !!(cfg.url && cfg.user), status: s.status, lastSyncAt: s.lastSyncAt, lastError: lastError, lastStats: s.lastStats },
+        counts: { total: list.length, starred: list.filter(m => m.starred).length }
+      }), { 'Content-Type': 'application/json; charset=utf-8' });
+    };
+    if (needDnsProbe) dnsProbe().then(respond);
+    else respond(null);
     return;
   }
 
-  // 扩展心跳：保存整页即算一次活动；扩展另用 alarms 每分钟保活
+  // 扩展心跳：保存整页即算一次活动；扩展用 alarms 每 30 秒保活，浏览器有活动时也会补发
   if ((req.method === 'POST' || req.method === 'GET') && p === '/api/ping') {
-    touchExtension();
-    send(res, 200, JSON.stringify({ ok: true, lastSeen: extState.lastSeen }), { 'Content-Type': 'application/json; charset=utf-8' });
+    readBody(req, 4096, (err, buf) => {
+      let v = '';
+      if (!err && buf && buf.length) {
+        try { const j = JSON.parse(buf.toString('utf8')); if (j && typeof j.v === 'string') v = j.v.slice(0, 20); } catch { /* 老版本扩展无 body */ }
+      }
+      touchExtension(v);
+      send(res, 200, JSON.stringify({ ok: true, lastSeen: extState.lastSeen, server: VERSION }), { 'Content-Type': 'application/json; charset=utf-8' });
+    });
     return;
   }
 
