@@ -19,7 +19,7 @@ mkdir -p "$PKG/server" "$PKG/extension"
 # compose（NAS 上通常要改 volumes 的绝对路径与 PUID/PGID）
 cp docker-compose.yml "$PKG/"
 # 服务端源码：只带运行期需要的（零依赖，不需要 node_modules / data）
-cp server/package.json server/server.js server/sync.js server/webdav.js server/zip.js \
+cp server/package.json server/server.js server/sync.js server/providers.js server/webdav.js server/zip.js \
    server/dnsx.js server/Dockerfile server/docker-entrypoint.sh "$PKG/server/"
 rsync -a --exclude '*.log' server/public "$PKG/server/"
 # 扩展（容器里从 /api/extension.zip 分发，镜像构建也需要它）

@@ -47,6 +47,9 @@ function netError(e, host) {
   if (/CERT|self.signed|SSL|TLS|ERR_TLS/i.test(msg)) {
     return new Error('TLS/证书错误：' + msg.slice(0, 140) + '（自签名证书需改用 https 可信任的地址）。');
   }
+  if (/setServername|socket.*destroyed/i.test(msg)) {
+    return new Error('连接建立后立刻断开：' + host + ' 的地址当前网络可能不通（常见于域名只有 IPv6 记录、而这台机器没有可用的 IPv6）。');
+  }
   return new Error('网络错误：' + msg);
 }
 
@@ -106,7 +109,7 @@ class WebDAV {
       } catch (e) {
         lastErr = e;
         // 只对"连不上这个地址"重试；HTTP 协议层错误抛出去，不换地址瞎试
-        if (!/ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|EADDRNOTAVAIL|请求超时|socket hang up|ECONNRESET/i.test(e && e.message || '')) {
+        if (!/ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|EADDRNOTAVAIL|请求超时|socket hang up|ECONNRESET|setServername/i.test(e && e.message || '')) {
           throw e;
         }
       }
@@ -126,6 +129,10 @@ class WebDAV {
       const reqOpts = {
         method,
         headers,
+        // 禁用全局连接池：逐地址重试时会话可能已被销毁，复用会让 Node 在
+        // 已销毁的 TLS socket 上调用 setServername，报 "Cannot read properties of null"。
+        // 同步本身是低频串行请求，不复用连接没有实际代价。
+        agent: false,
         lookup: dnsx.pinnedLookup(addr.address, addr.family)
       };
       const r = self.client.request(self.origin + (urlPath || ''), reqOpts, (res) => {
@@ -244,4 +251,4 @@ class WebDAV {
   }
 }
 
-module.exports = { WebDAV, WebDAVError };
+module.exports = { WebDAV, WebDAVError, netError };

@@ -6,6 +6,8 @@ desktop/.electron-cache/
 desktop/.electron-tmp/
 desktop/.electron-dist/
 desktop/.win-build/
+# 构建产物（发布走 GitHub Release，不入库）
+dist/
 desktop/dist/
 
 # 本地运行数据

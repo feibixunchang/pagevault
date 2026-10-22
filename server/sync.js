@@ -1,23 +1,26 @@
 'use strict';
 
-// 同步引擎：把本地收藏库与用户自己的 WebDAV 账号互相同步。
+// 同步引擎：把本地收藏库与「一个或多个同步目标」互相同步。
 //
-// 远端目录结构（都在同步目录 base 下）：
-//   index.json       全量索引（元数据）
-//   pages/<id>.html  页面文件（文件头带 pv-meta 注释，孤儿文件可自愈）
-//   deletions.json   删除记录（tombstone），防止删掉的页面在别端复活
+// 目标类型见 providers.js：
+//   - webdav : 用户自己的网盘（同一账号 = 多端同步，数据只在自己网盘）
+//   - peer   : 另一台跑着本程序的机器（家里 NAS 当同步中枢 / 备份源）
 //
-// 合并规则：
+// 多目标的意义（也是用户提的实际需求）：
+//   桌面端可以同时挂「坚果云 WebDAV」+「家里 NAS」，任何一边写入都会经本地库
+//   顺序同步到另一边；NAS 自己也可以挂 WebDAV 做异地备份。所有目标彼此独立，
+//   一个连不上不影响另一个。
+//
+// 合并规则（与单目标时代一致）：
 //   - 按页面 id 去重：本地没有的下载，远端没有的上传
 //   - 收藏（starred）冲突：starredAt 时间戳新的赢
 //   - 删除：本地删除 -> 删远端文件 + 记 tombstone；tombstone 取并集后应用
-//   - index.json 每次合并后全量覆盖（自愈：漏条目可由 pages/ 目录+文件头注释重建）
+//   - 索引每次合并后全量覆盖（自愈：漏条目可由 pages/ 目录+文件头注释重建）
 
-const fs = require('fs');
-const path = require('path');
-const { WebDAV } = require('./webdav');
+const { createProvider } = require('./providers');
 
 const ONLINE_WINDOW_MS = 120000; // 扩展"已连接"判定窗口（与心跳周期匹配）
+const TICK_MS = 5000;            // 调度器检查间隔
 
 function extractMeta(html) {
   const m = /<!--\s*pv-meta:([\s\S]*?)-->/i.exec(html || '');
@@ -27,170 +30,264 @@ function extractMeta(html) {
 
 class SyncEngine {
   // hooks: { loadIndex, saveIndex, loadDeletions, saveDeletions, writePage(id, html),
-  //          readPage(id), deletePageFile(id), log(), onSynced(stats) }
+  //          readPage(id), deletePageFile(id), log(), onSynced(stats, target) }
   constructor(hooks) {
     this.hooks = hooks;
-    this.state = { status: 'idle', lastSyncAt: 0, lastError: '', lastStats: null, running: false };
+    this.targets = new Map();  // id -> { meta, state }
     this.timer = null;
-    this.pending = false;
+    this._deb = null;
+    this._cfg = null;
+  }
+
+  _entry(t) {
+    let e = this.targets.get(t.id);
+    if (!e) {
+      e = {
+        meta: { name: t.name || t.type, type: t.type, enabled: t.enabled !== false },
+        state: { status: 'idle', lastSyncAt: 0, lastError: '', lastStats: null, running: false, nextDue: 0 }
+      };
+      this.targets.set(t.id, e);
+    } else {
+      e.meta.name = t.name || t.type;
+      e.meta.type = t.type;
+      e.meta.enabled = t.enabled !== false;
+    }
+    return e;
   }
 
   getStatus() {
-    return Object.assign({}, this.state);
-  }
+    const list = [...this.targets.entries()].map(([id, e]) => ({
+      id,
+      name: e.meta.name,
+      type: e.meta.type,
+      enabled: e.meta.enabled,
+      status: e.state.status,
+      lastSyncAt: e.state.lastSyncAt,
+      lastError: e.state.lastError,
+      lastStats: e.state.lastStats
+    }));
+    const on = list.filter(t => t.enabled);
+    const syncing = on.find(t => t.status === 'syncing');
+    const failed = on.find(t => t.status === 'error');
+    const done = on.filter(t => t.lastSyncAt).sort((a, b) => b.lastSyncAt - a.lastSyncAt)[0];
 
-  _dav(cfg) {
-    const dav = new WebDAV(cfg.url.replace(/\/+$/, '') + '/' + String(cfg.dir || 'pagevault').replace(/^\/+|\/+$/g, ''));
-    dav.auth(cfg.user, cfg.pass);
-    return dav;
-  }
-
-  // 完整一轮同步：pull -> merge -> push。返回 { pulled, pushed, deleted, errors: [] }
-  async run(cfg) {
-    if (this.state.running) { this.pending = true; return this.state.lastStats || { pulled: 0, pushed: 0, deleted: 0, errors: [] }; }
-    if (!cfg || !cfg.url || !cfg.user) {
-      this.state.status = 'disabled';
-      return { pulled: 0, pushed: 0, deleted: 0, errors: ['未配置 WebDAV'] };
+    // 聚合统计：状态栏只显示一行，给用户看总量更有意义
+    const total = { pulled: 0, pushed: 0, deleted: 0, errors: [] };
+    for (const t of on) {
+      const s = t.lastStats;
+      if (!s) continue;
+      total.pulled += s.pulled || 0;
+      total.pushed += s.pushed || 0;
+      total.deleted += s.deleted || 0;
     }
-    this.state.running = true;
-    this.state.status = 'syncing';
+
+    let status = 'idle';
+    if (!on.length) status = 'disabled';
+    else if (syncing) status = 'syncing';
+    else if (failed) status = 'error';
+    else if (done) status = 'ok';
+
+    return {
+      status,
+      configured: on.length > 0,
+      lastSyncAt: done ? done.lastSyncAt : 0,
+      lastError: failed ? (failed.name + '：' + failed.lastError) : '',
+      lastStats: total,
+      targets: list
+    };
+  }
+
+  // 完整一轮：对每个启用的目标 pull -> merge -> push。串行执行，
+  // 这样后一个目标能立刻拿到前一个目标拉下来的数据（WebDAV 与 NAS 互为镜像）。
+  async runAll(cfg) {
+    const on = (cfg && cfg.targets || []).filter(t => t.enabled !== false);
+    const out = [];
+    for (const t of on) out.push(await this.runOne(t, cfg));
+    return out;
+  }
+
+  async runOne(target, cfg) {
+    const e = this._entry(target);
+    const st = e.state;
+    if (st.running) return st.lastStats || { pulled: 0, pushed: 0, deleted: 0, errors: ['上一次同步还没结束'] };
+    st.running = true;
+    st.status = 'syncing';
+
     const errors = [];
     const stats = { pulled: 0, pushed: 0, deleted: 0, errors };
 
     try {
-      const dav = this._dav(cfg);
-      await dav.ensureDir('');
+      const prov = createProvider(target);
+      await prov.ensure();
 
       // ---------- pull ----------
-      const remoteIndexRaw = await dav.get('index.json');
-      let remoteIndex = [];
-      try { remoteIndex = remoteIndexRaw ? JSON.parse(remoteIndexRaw.toString('utf8')) : []; } catch { errors.push('远端 index.json 解析失败，按空处理'); }
-      const remoteMap = new Map(remoteIndex.map(m => [m.id, m]));
+      const remoteIndex = await prov.getIndex();
+      const remoteMap = new Map(remoteIndex.filter(m => m && m.id).map(m => [m.id, m]));
+      const remoteIds = await prov.listIds();
+      const remoteDeletions = await prov.getDeletions();
 
-      // 远端 pages/ 目录列表：用于发现 index 丢失的孤儿文件
-      let remoteFiles = new Set();
-      try {
-        const entries = await dav.list('pages');
-        remoteFiles = new Set(entries.filter(e => !e.isDir && e.name.endsWith('.html')).map(e => e.name));
-      } catch (e) { errors.push('列远端 pages/ 失败：' + e.message); }
-
-      const remoteDelRaw = await dav.get('deletions.json');
-      let remoteDeletions = [];
-      try { remoteDeletions = remoteDelRaw ? JSON.parse(remoteDelRaw.toString('utf8')) : []; } catch { /* 忽略 */ }
-
-      // ---------- merge 下载 ----------
       let localIndex = this.hooks.loadIndex();
       const localMap = new Map(localIndex.map(m => [m.id, m]));
 
-      for (const rm of remoteIndex) {
-        if (localMap.has(rm.id)) {
-          // starred 冲突：新的赢
-          const lm = localMap.get(rm.id);
-          if (rm.starred !== lm.starred && String(rm.starredAt || '') > String(lm.starredAt || '')) {
-            lm.starred = rm.starred;
-            lm.starredAt = rm.starredAt;
-          }
-          continue;
-        }
-        const html = await this.hooks.readPage(rm.id) || await this._download(dav, rm.id);
-        if (html == null) { errors.push('远端页面下载失败：' + rm.id); continue; }
-        this.hooks.writePage(rm.id, html);
-        localIndex.push(this.hooks.normalizeMeta(rm, html));
-        stats.pulled++;
-      }
-
-      // 孤儿文件自愈：pages/ 里有、index 里没有的 -> 读文件头 pv-meta 恢复
-      for (const fname of remoteFiles) {
-        const id = fname.replace(/\.html$/, '');
-        if (localMap.has(id) || remoteMap.has(id)) continue;
-        const html = await this._download(dav, id);
-        if (html == null) continue;
-        const meta = extractMeta(html);
-        if (!meta || !meta.id) continue;
-        this.hooks.writePage(id, html);
-        localIndex.push(this.hooks.normalizeMeta(meta, html));
-        stats.pulled++;
-      }
-
-      // ---------- 合并删除记录 ----------
+      // 先把删除记录（tombstone）合成一张表：pull 阶段就要跳过已删的 id，
+      // 否则"在 A 删掉、B 还没同步"的页面会被拉回来再删一次（白下载 + 日志噪音）。
       const localDeletions = this.hooks.loadDeletions();
       const delMap = new Map();
       for (const d of localDeletions.concat(remoteDeletions)) {
         if (d && d.id) delMap.set(d.id, String(d.deletedAt || ''));
       }
-      let delChanged = delMap.size !== localDeletions.length;
+
+      for (const rm of remoteIndex) {
+        if (!rm || !rm.id) continue;
+        if (delMap.has(rm.id)) continue;
+        if (localMap.has(rm.id)) {
+          // 星标冲突：starredAt 新的赢
+          const lm = localMap.get(rm.id);
+          if (!!rm.starred !== !!lm.starred && String(rm.starredAt || '') > String(lm.starredAt || '')) {
+            lm.starred = rm.starred;
+            lm.starredAt = rm.starredAt;
+          }
+          continue;
+        }
+        const html = await prov.getPage(rm.id);
+        if (html == null) { errors.push('远端页面下载失败：' + rm.id); continue; }
+        this.hooks.writePage(rm.id, html);
+        const nm = this.hooks.normalizeMeta(rm, html);
+        localIndex.push(nm);
+        localMap.set(rm.id, nm);
+        stats.pulled++;
+      }
+
+      // 孤儿文件自愈：远端有页面文件、索引里没有 -> 读文件头 pv-meta 恢复
+      for (const id of remoteIds) {
+        if (delMap.has(id) || localMap.has(id) || remoteMap.has(id)) continue;
+        const html = await prov.getPage(id);
+        if (html == null) continue;
+        const meta = extractMeta(html);
+        if (!meta || !meta.id) continue;
+        this.hooks.writePage(id, html);
+        const nm = this.hooks.normalizeMeta(meta, html);
+        localIndex.push(nm);
+        localMap.set(id, nm);
+        stats.pulled++;
+      }
+
+      // ---------- 应用删除记录（tombstone 并集）----------
       for (const [id] of delMap) {
-        const meta = localIndex.find(m => m.id === id);
-        if (meta) {
+        if (localMap.has(id)) {
           this.hooks.deletePageFile(id);
           localIndex = localIndex.filter(m => m.id !== id);
+          localMap.delete(id);
           stats.deleted++;
-          delChanged = true;
         }
       }
-      if (delChanged) this.hooks.saveDeletions([...delMap].map(([id, deletedAt]) => ({ id, deletedAt })));
+      const delList = [...delMap].map(([id, deletedAt]) => ({ id, deletedAt }));
+      this.hooks.saveDeletions(delList);
 
       // ---------- push ----------
-      const afterMap = new Map(localIndex.map(m => [m.id, m]));
       for (const meta of localIndex) {
-        if (remoteMap.has(meta.id) || remoteFiles.has(meta.id + '.html')) continue;
+        const remoteMeta = remoteMap.get(meta.id);
+        if (remoteMeta || remoteIds.has(meta.id)) {
+          // 已存在：只在本地星标更新时单独推一次元数据（WebDAV 由 index.json 覆盖完成）
+          if (remoteMeta && !!meta.starred !== !!remoteMeta.starred
+              && String(meta.starredAt || '') > String(remoteMeta.starredAt || '')) {
+            try { await prov.putMeta(meta); stats.pushed++; } catch (e) { errors.push('同步星标失败：' + e.message); }
+          }
+          continue;
+        }
         const html = this.hooks.readPage(meta.id);
         if (html == null) { errors.push('本地页面文件缺失，跳过上传：' + meta.id); continue; }
-        await dav.put('pages/' + meta.id + '.html', Buffer.from(html, 'utf8'));
-        stats.pushed++;
+        try {
+          await prov.putPage(meta.id, html, meta);
+          remoteIds.add(meta.id);
+          stats.pushed++;
+        } catch (e) {
+          errors.push('上传失败（' + meta.id + '）：' + e.message);
+        }
       }
-      // 清理远端残留（本地删过但远端还在的）
-      for (const fname of remoteFiles) {
-        const id = fname.replace(/\.html$/, '');
-        if (delMap.has(id) && !afterMap.has(id)) {
-          try { await dav.del('pages/' + fname); } catch { /* 远端已没有就算了 */ }
+
+      // 清理远端残留（本地删过但远端还在）
+      for (const id of remoteIds) {
+        if (delMap.has(id) && !localMap.has(id)) {
+          try { await prov.delPage(id); } catch { /* 远端已没有就算了 */ }
         }
       }
 
       this.hooks.saveIndex(localIndex);
-      await dav.put('index.json', Buffer.from(JSON.stringify(localIndex, null, 2), 'utf8'));
-      await dav.put('deletions.json', Buffer.from(JSON.stringify([...delMap].map(([id, deletedAt]) => ({ id, deletedAt })), null, 2), 'utf8'));
+      await prov.putIndex(localIndex);
+      await prov.putDeletions(delList);
 
-      this.state.status = 'ok';
-      this.state.lastSyncAt = Date.now();
-      this.state.lastError = errors.length ? errors[0] : '';
-      this.state.lastStats = stats;
-      if (this.hooks.onSynced) this.hooks.onSynced(stats);
-      this.hooks.log('sync ok: pulled=' + stats.pulled + ' pushed=' + stats.pushed + ' deleted=' + stats.deleted + (errors.length ? ' errors=' + errors.length : ''));
+      st.status = errors.length && !stats.pulled && !stats.pushed ? 'error' : 'ok';
+      st.lastSyncAt = Date.now();
+      st.lastError = errors.length ? errors[0] : '';
+      st.lastStats = stats;
+      if (this.hooks.onSynced) this.hooks.onSynced(stats, target);
+      const tag = (target.name || target.type) + '@' + (target.url || '');
+      this.hooks.log('sync[' + tag + '] ok: pulled=' + stats.pulled + ' pushed=' + stats.pushed
+        + ' deleted=' + stats.deleted + (errors.length ? ' errors=' + errors.length + ' (' + errors[0] + ')' : ''));
       return stats;
     } catch (e) {
-      errors.push(e && e.message ? e.message : String(e));
-      this.state.status = 'error';
-      this.state.lastError = errors[0];
-      this.state.lastStats = stats;
-      this.hooks.log('sync failed: ' + errors[0]);
+      const msg = (e && e.message) ? e.message : String(e);
+      errors.push(msg);
+      st.status = 'error';
+      st.lastError = msg;
+      st.lastStats = stats;
+      this.hooks.log('sync[' + (target.name || target.type) + '] failed: ' + msg);
       return stats;
     } finally {
-      this.state.running = false;
-      if (this.pending) { this.pending = false; setTimeout(() => this.run(cfg), 500); }
+      st.running = false;
     }
   }
 
-  async _download(dav, id) {
-    try { return await dav.get('pages/' + id + '.html'); } catch { return null; }
-  }
-
-  // 定时轮询 + 变更后即时同步
+  // 调度器：每 5 秒看一次有没有到期该跑的目标（每个目标可有自己的间隔）
   start(cfg) {
     this.stop();
-    const sec = cfg && cfg.intervalSec;
-    if (!sec || sec <= 0 || !cfg || !cfg.url || !cfg.user) return;
-    this.timer = setInterval(() => { this.run(cfg); }, Math.max(5, sec) * 1000);
-    this.hooks.log('sync timer started, interval ' + sec + 's');
+    this._cfg = cfg;
+    const ids = new Set(((cfg && cfg.targets) || []).map(t => t.id));
+    for (const id of [...this.targets.keys()]) if (!ids.has(id)) this.targets.delete(id);
+    for (const t of (cfg && cfg.targets) || []) this._entry(t);
+    const anyTimed = (cfg && cfg.targets || []).some(t => t.enabled !== false && this._intervalOf(t, cfg) > 0);
+    if (!anyTimed) return;
+    this.timer = setInterval(() => this._tick(), TICK_MS);
+    this.hooks.log('sync scheduler started, targets=' + (cfg.targets || []).length);
   }
+
+  _intervalOf(t, cfg) {
+    const raw = (t.intervalSec === undefined || t.intervalSec === null) ? cfg.intervalSec : t.intervalSec;
+    const n = Number(raw) || 0;
+    return n > 0 ? Math.max(5, n) : 0;
+  }
+
+  _tick() {
+    const cfg = this._cfg;
+    if (!cfg) return;
+    const now = Date.now();
+    for (const t of cfg.targets || []) {
+      if (t.enabled === false) continue;
+      const iv = this._intervalOf(t, cfg);
+      if (!iv) continue;
+      const e = this._entry(t);
+      if (e.state.running) continue;
+      if (now < e.state.nextDue) continue;
+      e.state.nextDue = now + iv * 1000;
+      this.runOne(t, cfg);
+    }
+  }
+
   stop() {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
-  }
-  // 本地发生变更（保存/删除/收藏）后 debounce 触发
-  schedule(cfg) {
-    if (!cfg || !cfg.url || !cfg.user) return;
     clearTimeout(this._deb);
-    this._deb = setTimeout(() => { this.run(cfg); }, 2500);
+  }
+
+  // 本地变更（保存/删除/收藏）后 debounce 触发一次，只推给"开了自动同步"的目标
+  schedule(cfg) {
+    if (!cfg || !cfg.targets || !cfg.targets.length) return;
+    const auto = cfg.targets.filter(t => t.enabled !== false && this._intervalOf(t, cfg) > 0);
+    if (!auto.length) return;
+    clearTimeout(this._deb);
+    this._deb = setTimeout(() => {
+      for (const t of auto) this.runOne(t, cfg);
+    }, 2500);
   }
 }
 
