@@ -5,11 +5,50 @@
 // opens a native window rendering the reader UI. The browser extension talks to the
 // same localhost:8731 endpoint, so all six ends share one protocol.
 
-const { app, BrowserWindow, nativeTheme } = require('electron');
+const { app, BrowserWindow, nativeTheme, Menu } = require('electron');
 const { fork } = require('child_process');
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
+
+// 本地化应用菜单（跟随系统语言；设置里选的语言下次启动生效——启动时读 prefs.json）
+function buildMenu() {
+  let langPref = 'system';
+  try {
+    const prefsPath = path.join(app.getPath('userData'), 'prefs.json');
+    if (fs.existsSync(prefsPath)) {
+      const p = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
+      if (p && p.lang) langPref = p.lang;
+    }
+  } catch { /* 读不到用系统语言 */ }
+  const zh = langPref === 'zh' || (langPref === 'system' && app.getLocale().toLowerCase().startsWith('zh'));
+  const L = zh ? {
+    app: '网页收藏', about: '关于网页收藏', quit: '退出网页收藏',
+    file: '文件', close: '关闭窗口',
+    edit: '编辑', undo: '撤销', redo: '重做', cut: '剪切', copy: '复制', paste: '粘贴', selectAll: '全选',
+    view: '显示', reload: '重新加载', forceReload: '强制重新加载', devtools: '开发者工具',
+    resetZoom: '实际大小', zoomIn: '放大', zoomOut: '缩小', fullscreen: '全屏',
+    window: '窗口', minimize: '最小化', zoomWin: '缩放', front: '全部置于顶层',
+    help: '帮助'
+  } : {
+    app: 'Web Vault', about: 'About Web Vault', quit: 'Quit Web Vault',
+    file: 'File', close: 'Close Window',
+    edit: 'Edit', undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select All',
+    view: 'View', reload: 'Reload', forceReload: 'Force Reload', devtools: 'Developer Tools',
+    resetZoom: 'Actual Size', zoomIn: 'Zoom In', zoomOut: 'Zoom Out', fullscreen: 'Toggle Fullscreen',
+    window: 'Window', minimize: 'Minimize', zoomWin: 'Zoom', front: 'Bring All to Front',
+    help: 'Help'
+  };
+  const template = [
+    { label: L.app, submenu: [ { label: L.about, role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { label: L.quit, role: 'quit' } ] },
+    { label: L.file, submenu: [ { label: L.close, role: 'close' } ] },
+    { label: L.edit, submenu: [ { label: L.undo, role: 'undo' }, { label: L.redo, role: 'redo' }, { type: 'separator' }, { label: L.cut, role: 'cut' }, { label: L.copy, role: 'copy' }, { label: L.paste, role: 'paste' }, { label: L.selectAll, role: 'selectAll' } ] },
+    { label: L.view, submenu: [ { label: L.reload, role: 'reload' }, { label: L.forceReload, role: 'forceReload' }, { label: L.devtools, role: 'toggleDevTools' }, { type: 'separator' }, { label: L.resetZoom, role: 'resetZoom' }, { label: L.zoomIn, role: 'zoomIn' }, { label: L.zoomOut, role: 'zoomOut' }, { type: 'separator' }, { label: L.fullscreen, role: 'togglefullscreen' } ] },
+    { label: L.window, submenu: [ { label: L.minimize, role: 'minimize' }, { label: L.zoomWin, role: 'zoom' }, { type: 'separator' }, { label: L.front, role: 'front' } ] },
+    { label: L.help, submenu: [] }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 const PORT = 8731;
 let serverProc = null;
@@ -95,6 +134,7 @@ function stopServer() {
 }
 
 app.whenReady().then(() => {
+  buildMenu();
   startServer((ok) => {
     if (!ok) {
       console.error('[pagevault] server failed to start');

@@ -4,6 +4,28 @@
 
 const DEFAULT_SERVER = 'http://localhost:8731';
 
+// ---------- 多语言（跟随浏览器语言） ----------
+const MSG = {
+  zh: {
+    appName: '网页收藏', sub: '一键保存当前整页', capture: '保存整页',
+    serverPh: '服务端地址', save: '存', ready: '就绪', serverSaved: '已保存服务地址',
+    capturing: '捕获中…', inlining: n => '内联远程图片（' + n + '）…',
+    noTab: '没有活动标签页', captureFail: '捕获失败：', emptyContent: '捕获失败：页面无内容',
+    retrying: '保存中（重试一次）…', saved: '已保存 ✓（SingleFile 高保真）',
+    noServer: '保存失败：连不上服务端，请先打开「网页收藏」App', saveFail: '保存到服务端失败：'
+  },
+  en: {
+    appName: 'Web Vault', sub: 'Save the full page in one click', capture: 'Save page',
+    serverPh: 'Server URL', save: 'Save', ready: 'Ready', serverSaved: 'Server saved',
+    capturing: 'Capturing…', inlining: n => 'Inlining remote images (' + n + ')…',
+    noTab: 'No active tab', captureFail: 'Capture failed: ', emptyContent: 'Capture failed: empty page',
+    retrying: 'Saving (retrying once)…', saved: 'Saved ✓ (SingleFile fidelity)',
+    noServer: 'Save failed: cannot reach the server — open the "Web Vault" app first', saveFail: 'Save failed: '
+  }
+};
+const lang = (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+const m = MSG[lang];
+
 async function getServer() {
   const s = await chrome.storage.local.get('serverUrl');
   return s.serverUrl || DEFAULT_SERVER;
@@ -17,27 +39,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statusEl = document.getElementById('status');
   input.value = await getServer();
 
+  // 界面文字跟随浏览器语言
+  document.querySelector('h1').textContent = m.appName;
+  document.querySelector('.sub').textContent = m.sub;
+  document.getElementById('capture').textContent = m.capture;
+  input.placeholder = m.serverPh;
+  document.getElementById('save').textContent = m.save;
+  statusEl.textContent = m.ready;
+
   document.getElementById('save').addEventListener('click', async () => {
     await setServer(input.value.trim());
-    statusEl.textContent = '已保存服务地址';
+    statusEl.textContent = m.serverSaved;
   });
   document.getElementById('capture').addEventListener('click', () => doCapture(statusEl));
 });
 
 async function doCapture(statusEl) {
-  statusEl.textContent = '捕获中…';
+  statusEl.textContent = m.capturing;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab) { statusEl.textContent = '没有活动标签页'; return; }
+  if (!tab) { statusEl.textContent = m.noTab; return; }
 
   let captured;
   try {
     captured = await captureWithSingleFile(tab.id, statusEl);
   } catch (e) {
-    statusEl.textContent = '捕获失败：' + (e && e.message ? e.message : e);
+    statusEl.textContent = m.captureFail + (e && e.message ? e.message : e);
     return;
   }
   if (!captured || !captured.html) {
-    statusEl.textContent = '捕获失败：页面无内容';
+    statusEl.textContent = m.emptyContent;
     return;
   }
 
@@ -53,12 +83,12 @@ async function doCapture(statusEl) {
   };
   try {
     await postWithRetry(server + '/api/pages', payload, statusEl);
-    statusEl.textContent = '已保存 ✓（SingleFile 高保真）';
+    statusEl.textContent = m.saved;
   } catch (e) {
     const msg = (e && e.message) || String(e);
     statusEl.textContent = /failed to fetch|networkerror|load failed|ECONNREFUSED|aborted/i.test(msg)
-      ? '保存失败：连不上服务端，请先打开「网页收藏」App'
-      : '保存到服务端失败：' + msg;
+      ? m.noServer
+      : m.saveFail + msg;
   }
 }
 
@@ -100,7 +130,7 @@ async function captureWithSingleFile(tabId, statusEl) {
   // 交给 background（有 host 权限）抓取并转成 data URL 内联，避免裂图。
   const remoteUrls = extractRemoteUrls(data.html);
   if (remoteUrls.length) {
-    statusEl.textContent = '内联远程图片（' + remoteUrls.length + '）…';
+    statusEl.textContent = m.inlining(remoteUrls.length);
     try {
       const { map } = await chrome.runtime.sendMessage({
         type: 'inline-images',
@@ -186,7 +216,7 @@ async function postWithRetry(url, payload, statusEl) {
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     return await resp.json();
   } catch (e) {
-    statusEl.textContent = '保存中（重试一次）…';
+    statusEl.textContent = m.retrying;
     await new Promise(r => setTimeout(r, 1200));
     const resp = await fetch(url, opts);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
