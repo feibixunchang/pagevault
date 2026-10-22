@@ -1,0 +1,12 @@
+services:
+  pagevault:
+    build: .
+    image: pagevault/server:latest
+    container_name: pagevault
+    ports:
+      - "8731:8731"
+    environment:
+      - PORT=8731
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

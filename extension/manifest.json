@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "PageVault 整页保存",
+  "version": "0.5.0",
+  "description": "一键把当前网页完整保存到 PageVault 同步库，随时离线回看（基于 SingleFile 高保真捕获）。",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "background": { "service_worker": "background.js" },
+  "host_permissions": [
+    "<all_urls>",
+    "http://localhost:8731/*",
+    "http://127.0.0.1:8731/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "保存整页到 PageVault"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["lib/single-file.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
