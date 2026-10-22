@@ -27,8 +27,13 @@ cp "$OUT/Contents/MacOS/Electron" "$OUT/Contents/MacOS/网页收藏"
 rm -f "$OUT/Contents/MacOS/Electron"
 chmod +x "$OUT/Contents/MacOS/网页收藏"
 
-# 3. Replace Info.plist
+# 3. Replace Info.plist（并把版本号写进去：访达「显示简介」/ 系统关于本机读的都是它）
 cp "$DESKTOP/Info.plist" "$OUT/Contents/Info.plist"
+APP_VER=$(node -p "require('$DESKTOP/package.json').version")
+for KEY in CFBundleShortVersionString CFBundleVersion; do
+  /usr/libexec/PlistBuddy -c "Set :$KEY $APP_VER" "$OUT/Contents/Info.plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :$KEY string $APP_VER" "$OUT/Contents/Info.plist"
+done
 
 # 4. Install our app entry (main.js + package.json + updater/preload)
 mkdir -p "$OUT/Contents/Resources/app"

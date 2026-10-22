@@ -6,12 +6,14 @@
 
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { SyncEngine, extractMeta, ONLINE_WINDOW_MS } = require('./sync');
+const { createProvider } = require('./providers');
 const { zipStore, zipRead } = require('./zip');
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
@@ -105,6 +107,74 @@ function addDeletion(id) {
   saveDeletions(list);
 }
 
+// 合并对端推来的删除记录（tombstone 并集），并立刻应用到本地库。
+// 这是"在一台机器上删掉、其他机器不会再冒出来"的关键。
+function mergeDeletions(incoming) {
+  const map = new Map();
+  for (const d of loadDeletions()) if (d && d.id) map.set(d.id, String(d.deletedAt || ''));
+  for (const d of (incoming || [])) {
+    if (!d || !d.id) continue;
+    const at = String(d.deletedAt || '');
+    const prev = map.get(d.id);
+    if (prev === undefined || at > prev) map.set(d.id, at);
+  }
+  const list = loadIndex();
+  const kept = [];
+  let changed = false;
+  for (const m of list) {
+    if (map.has(m.id)) {
+      try { fs.unlinkSync(path.join(DATA_DIR, m.file || (m.id + '.html'))); } catch { /* 已不存在 */ }
+      broadcastDeleted(m.id);
+      changed = true;
+    } else kept.push(m);
+  }
+  if (changed) saveIndex(kept);
+  const out = [...map].map(([id, deletedAt]) => ({ id, deletedAt }));
+  saveDeletions(out);
+  if (changed) log('peer deletions applied, removed =', list.length - kept.length);
+  return out;
+}
+
+// 对端推来一个页面：新增或覆盖，星标按 starredAt 新的赢。
+// 本地已经删掉的 id 拒绝复活（否则一台机器删、另一台推，会永远来回打架）。
+function upsertPageFromPeer(id, html, metaIn) {
+  if (loadDeletions().some(d => d && d.id === id)) return { ok: true, written: false, skipped: 'deleted' };
+  const embedded = extractMeta(html) || {};
+  const inc = Object.assign({}, embedded, metaIn || {});
+  const list = loadIndex();
+  const cur = list.find(m => m.id === id);
+  const file = id + '.html';
+  try { fs.writeFileSync(path.join(DATA_DIR, file), html, 'utf8'); } catch (e) {
+    return { ok: false, written: false, error: String(e && e.message || e) };
+  }
+  const size = Buffer.byteLength(html);
+  if (cur) {
+    if (String(inc.starredAt || '') > String(cur.starredAt || '')) {
+      cur.starred = !!inc.starred;
+      cur.starredAt = inc.starredAt || '';
+    }
+    if (inc.title) cur.title = String(inc.title).slice(0, 300);
+    if (inc.url) cur.url = String(inc.url).slice(0, 2000);
+    cur.size = size;
+    saveIndex(list);
+    return { ok: true, written: true, added: false, title: cur.title };
+  }
+  const meta = {
+    id,
+    title: String(inc.title || 'Untitled').slice(0, 300),
+    url: String(inc.url || '').slice(0, 2000),
+    savedAt: inc.savedAt || new Date().toISOString(),
+    platform: String(inc.platform || 'sync').slice(0, 60),
+    format: String(inc.format || 'html').slice(0, 20),
+    size,
+    file
+  };
+  if (inc.starred) { meta.starred = true; meta.starredAt = inc.starredAt || new Date().toISOString(); }
+  list.push(meta);
+  saveIndex(list);
+  return { ok: true, written: true, added: true, title: meta.title };
+}
+
 // ---------- 同步引擎（WebDAV 账号 = 多端同步的"同一账号"） ----------
 function loadPrefsRaw() {
   try { return JSON.parse(fs.readFileSync(PREFS_FILE, 'utf8')); } catch { return {}; }
@@ -137,13 +207,85 @@ const sync = new SyncEngine({
 function syncConfig() {
   const p = loadPrefsRaw();
   const s = p.sync || {};
-  return { url: s.url || '', user: s.user || '', pass: s.pass || '', dir: s.dir || 'pagevault', intervalSec: s.intervalSec || 0 };
+  let raw = Array.isArray(s.targets) ? s.targets : [];
+  // 兼容 1.0.x 的「单个 WebDAV」配置：自动当成一个 webdav 目标
+  if (!raw.length && s.url && s.user) {
+    raw = [{ id: 'webdav-1', type: 'webdav', name: 'WebDAV', enabled: true,
+      url: s.url, user: s.user, pass: s.pass, dir: s.dir || 'pagevault' }];
+  }
+  const targets = raw.filter(t => t && t.id && t.type).map(t => ({
+    id: String(t.id),
+    type: t.type === 'peer' ? 'peer' : 'webdav',
+    name: String(t.name || (t.type === 'peer' ? 'PageVault' : 'WebDAV')),
+    enabled: t.enabled !== false,
+    url: String(t.url || ''),
+    user: String(t.user || ''),
+    pass: String(t.pass || ''),
+    dir: String(t.dir || 'pagevault'),
+    token: String(t.token || ''),
+    intervalSec: (t.intervalSec === null || t.intervalSec === undefined) ? null : (Number(t.intervalSec) || 0)
+  }));
+  return { intervalSec: Number(s.intervalSec) || 0, targets };
 }
 function restartSyncTimer() {
-  const cfg = syncConfig();
   sync.stop();
-  if (cfg.url && cfg.user && cfg.intervalSec > 0) sync.start(cfg);
+  sync.start(syncConfig());
 }
+
+// ---------- 本机作为同步源（别的机器把我们加成 peer 目标） ----------
+// token 首次启动自动生成并落盘；用户可以在设置里查看/复制/重置。
+// 有了它，NAS 才能安全地暴露在同一局域网（甚至反代到公网）供其他端同步。
+let syncServerCache = null;
+function ensureSyncServer() {
+  if (syncServerCache) return syncServerCache;
+  const p = loadPrefsRaw();
+  const s = p.syncServer || {};
+  let changed = false;
+  if (!s.token || typeof s.token !== 'string') { s.token = crypto.randomBytes(18).toString('hex'); changed = true; }
+  if (typeof s.enabled !== 'boolean') { s.enabled = true; changed = true; }
+  if (changed) { p.syncServer = s; try { fs.writeFileSync(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ } }
+  syncServerCache = s;
+  return s;
+}
+function resetSyncServerToken() {
+  const p = loadPrefsRaw();
+  const s = p.syncServer || {};
+  s.token = crypto.randomBytes(18).toString('hex');
+  s.enabled = s.enabled !== false;
+  p.syncServer = s;
+  try { fs.writeFileSync(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 忽略 */ }
+  syncServerCache = s;
+  return s;
+}
+
+function isPrivateAddr(ip) {
+  if (!ip) return false;
+  const a = String(ip).replace(/^::ffff:/i, '');
+  if (a === '127.0.0.1' || a === '::1') return true;
+  if (/^10\./.test(a) || /^192\.168\./.test(a) || /^169\.254\./.test(a)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(a)) return true;
+  if (/^f[cd][0-9a-f]{2}:/i.test(a)) return true;  // fc00::/7 内网
+  if (/^fe80:/i.test(a)) return true;            // 链路本地
+  return false;
+}
+
+// 对端接口鉴权：必须带 Bearer token（?token= 也接受，方便浏览器里手测）
+function peerAuthorized(req, url) {
+  const srv = ensureSyncServer();
+  if (srv.enabled === false) return false;
+  const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
+  const given = (m ? m[1] : (url.searchParams.get('token') || '')).trim();
+  if (!given) return false;
+  const a = Buffer.from(given, 'utf8');
+  const b = Buffer.from(srv.token, 'utf8');
+  if (a.length !== b.length) return false;
+  try { return crypto.timingSafeEqual(a, b); } catch { return false; }
+}
+function peerDeny(res) {
+  send(res, 401, JSON.stringify({ ok: false, error: 'unauthorized', message: '同步令牌不正确' }),
+    { 'Content-Type': 'application/json; charset=utf-8' });
+}
+
 
 function loadIndex() {
   try { return JSON.parse(fs.readFileSync(INDEX_FILE, 'utf8')); }
@@ -303,19 +445,50 @@ const server = http.createServer((req, res) => {
       if (['system', 'songti', 'kaiti', 'heiti', 'yuanti', 'yahei', 'pingfang', 'mono'].includes(prefs.font)) clean.font = prefs.font;
       if (['s', 'm', 'l', 'xl'].includes(prefs.fontSize)) clean.fontSize = prefs.fontSize;
       if (typeof prefs.autoUpdate === 'boolean') clean.autoUpdate = prefs.autoUpdate;
+      // 同步目标：数组，每项 webdav（网盘）或 peer（另一台本程序 = NAS）
       if (prefs.sync && typeof prefs.sync === 'object') {
-        // 同步配置（WebDAV 账号 = 多端同步的同一账号）
         const s = prefs.sync;
+        const targets = [];
+        const seen = new Set();
+        for (const t of (Array.isArray(s.targets) ? s.targets : [])) {
+          if (!t || typeof t !== 'object') continue;
+          const type = t.type === 'peer' ? 'peer' : 'webdav';
+          let id = String(t.id || '').replace(/[^\w-]/g, '').slice(0, 40);
+          if (!id) id = 't' + crypto.randomBytes(4).toString('hex');
+          while (seen.has(id)) id = id + crypto.randomBytes(1).toString('hex');
+          const item = {
+            id,
+            type,
+            name: String(t.name || (type === 'peer' ? 'PageVault' : 'WebDAV')).slice(0, 60),
+            enabled: t.enabled !== false,
+            url: String(t.url || '').trim().slice(0, 500),
+            intervalSec: [null, 0, 10, 30, 60, 300].includes(t.intervalSec) ? t.intervalSec : null
+          };
+          if (!item.url) continue; // 没地址的目标没意义，直接丢掉
+          if (type === 'webdav') {
+            item.user = String(t.user || '').slice(0, 200);
+            item.pass = String(t.pass || '').slice(0, 500);
+            item.dir = (String(t.dir || 'pagevault').slice(0, 100).replace(/[\\/:*?"<>|]+/g, '') || 'pagevault');
+            if (!item.user) continue;
+          } else {
+            item.token = String(t.token || '').trim().slice(0, 200);
+          }
+          seen.add(id);
+          targets.push(item);
+        }
         clean.sync = {
-          url: String(s.url || '').slice(0, 500),
-          user: String(s.user || '').slice(0, 200),
-          pass: String(s.pass || '').slice(0, 500),
-          dir: String(s.dir || 'pagevault').slice(0, 100).replace(/[\\/:*?"<>|]+/g, ''),
-          intervalSec: [0, 10, 30, 60].includes(s.intervalSec) ? s.intervalSec : 0
+          intervalSec: [0, 10, 30, 60].includes(s.intervalSec) ? s.intervalSec : 0,
+          targets
         };
+      } else {
+        const old = loadPrefsRaw();
+        if (old.sync) clean.sync = old.sync;
       }
+      // syncServer 由服务端自己维护（令牌不可从前端改写），原样保留
+      const prev = loadPrefsRaw();      if (prev.syncServer) clean.syncServer = prev.syncServer;
       try { fs.writeFileSync(PREFS_FILE, JSON.stringify(clean, null, 2)); } catch { /* 只读环境忽略 */ }
-      send(res, 200, JSON.stringify(clean), { 'Content-Type': 'application/json; charset=utf-8' });
+      syncServerCache = null;
+      send(res, 200, JSON.stringify(Object.assign({}, clean, { syncServer: ensureSyncServer() })), { 'Content-Type': 'application/json; charset=utf-8' });
       restartSyncTimer();
       // 广播给其他端：主题/语言/字体等外观设置实时互相同步（不重载页面，只应用）
       broadcastPrefs(clean);
@@ -327,7 +500,6 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/api/status') {
     const list = loadIndex();
     const s = sync.getStatus();
-    const cfg = syncConfig();
     // 同步报"域名解析失败"时，顺手探一下公网 DNS：能区分"只是这个域名坏了"还是"本机 DNS 整体不可用"
     const needDnsProbe = /域名解析失败/.test(s.lastError || '');
     const respond = (dnsOk) => {
@@ -339,7 +511,14 @@ const server = http.createServer((req, res) => {
         ok: true, version: VERSION, port: PORT, platform: PLATFORM,
         extension: { lastSeen: extState.lastSeen, version: extState.version, online: extensionOnline() },
         extensionPath: extensionDir(),
-        sync: { configured: !!(cfg.url && cfg.user), status: s.status, lastSyncAt: s.lastSyncAt, lastError: lastError, lastStats: s.lastStats },
+        sync: {
+          configured: s.configured,
+          status: s.status,
+          lastSyncAt: s.lastSyncAt,
+          lastError: lastError,
+          lastStats: s.lastStats,
+          targets: s.targets
+        },
         counts: { total: list.length, starred: list.filter(m => m.starred).length }
       }), { 'Content-Type': 'application/json; charset=utf-8' });
     };
@@ -361,7 +540,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // ---------- WebDAV 同步 ----------
+  // ---------- 同步：目标测试 / 立即同步 / 状态 / 本机令牌 ----------
   if (req.method === 'POST' && p === '/api/sync/test') {
     readBody(req, 1024 * 1024, (err, buf) => {
       if (err) { send(res, 413, JSON.stringify({ ok: false, message: 'too large' }), { 'Content-Type': 'application/json' }); return; }
@@ -369,10 +548,15 @@ const server = http.createServer((req, res) => {
       try { cfg = JSON.parse(buf.toString('utf8')); } catch { send(res, 400, JSON.stringify({ ok: false, message: 'invalid json' }), { 'Content-Type': 'application/json' }); return; }
       (async () => {
         try {
-          const { WebDAV } = require('./webdav');
-          const dav = new WebDAV(cfg.url.replace(/\/+$/, '') + '/' + String(cfg.dir || 'pagevault').replace(/^\/+|\/+$/g, ''));
-          dav.auth(cfg.user, cfg.pass);
-          const r = await dav.test();
+          const prov = createProvider({
+            id: 'test',
+            type: cfg.type === 'peer' ? 'peer' : 'webdav',
+            url: String(cfg.url || ''),
+            user: cfg.user, pass: cfg.pass,
+            dir: cfg.dir || 'pagevault',
+            token: cfg.token
+          });
+          const r = await prov.test();
           send(res, 200, JSON.stringify(r), { 'Content-Type': 'application/json; charset=utf-8' });
         } catch (e) {
           send(res, 200, JSON.stringify({ ok: false, message: e && e.message ? e.message : String(e) }), { 'Content-Type': 'application/json; charset=utf-8' });
@@ -382,14 +566,159 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (req.method === 'POST' && p === '/api/sync/run') {
-    sync.run(syncConfig()).then(stats => {
-      broadcastMeta({ type: 'synced', at: Date.now() });
-      send(res, 200, JSON.stringify({ ok: sync.getStatus().status !== 'error', stats, status: sync.getStatus() }), { 'Content-Type': 'application/json; charset=utf-8' });
+    readBody(req, 64 * 1024, (err, buf) => {
+      let targetId = '';
+      if (!err && buf && buf.length) {
+        try { targetId = String(JSON.parse(buf.toString('utf8')).targetId || ''); } catch { /* 无 body 视为全量 */ }
+      }
+      const cfg = syncConfig();
+      let job;
+      if (targetId) {
+        const t = cfg.targets.find(x => x.id === targetId);
+        job = t ? sync.runOne(t, cfg) : Promise.resolve({ pulled: 0, pushed: 0, deleted: 0, errors: ['找不到该同步目标'] });
+      } else {
+        job = sync.runAll(cfg);
+      }
+      Promise.resolve(job).then(results => {
+        const list = Array.isArray(results) ? results : [results];
+        const agg = { pulled: 0, pushed: 0, deleted: 0, errors: [] };
+        for (const r of list) {
+          agg.pulled += r.pulled || 0;
+          agg.pushed += r.pushed || 0;
+          agg.deleted += r.deleted || 0;
+          for (const e of (r.errors || [])) agg.errors.push(e);
+        }
+        broadcastMeta({ type: 'synced', at: Date.now() });
+        const st = sync.getStatus();
+        send(res, 200, JSON.stringify({ ok: st.status !== 'error', stats: agg, status: st }), { 'Content-Type': 'application/json; charset=utf-8' });
+      });
     });
     return;
   }
   if (req.method === 'GET' && p === '/api/sync/status') {
     send(res, 200, JSON.stringify(sync.getStatus()), { 'Content-Type': 'application/json; charset=utf-8' });
+    return;
+  }
+  // 本机作为同步源的令牌：设置面板显示/复制/重置
+  if (req.method === 'GET' && p === '/api/sync/token') {
+    const s = ensureSyncServer();
+    const lan = [];
+    try {
+      for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
+        for (const a of addrs || []) {
+          if (a.family === 'IPv4' && !a.internal) lan.push({ name, address: a.address });
+        }
+      }
+    } catch { /* 忽略 */ }
+    send(res, 200, JSON.stringify({ ok: true, token: s.token, enabled: s.enabled !== false, port: PORT, addresses: lan },
+      { 'Content-Type': 'application/json; charset=utf-8' }));
+    return;
+  }
+  if (req.method === 'POST' && p === '/api/sync/token/reset') {
+    const s = resetSyncServerToken();
+    log('sync server token rotated');
+    send(res, 200, JSON.stringify({ ok: true, token: s.token, enabled: s.enabled !== false }), { 'Content-Type': 'application/json; charset=utf-8' });
+    return;
+  }
+
+  // ---------- 对端接口（供其他 PageVault 实例把本机当同步源/备份源） ----------
+  // 一律要求 Bearer 令牌，防止同一局域网里的其他设备偷偷读写你的库。
+  if (p.startsWith('/api/sync/') && !p.startsWith('/api/sync/status')) {
+    if (!peerAuthorized(req, url)) { peerDeny(res); return; }
+
+    const hostName = (loadPrefsRaw().syncServer || {}).name || os.hostname() || 'PageVault';
+
+    if (req.method === 'GET' && p === '/api/sync/probe') {
+      send(res, 200, JSON.stringify({
+        ok: true, name: hostName, version: VERSION, platform: PLATFORM,
+        count: loadIndex().length
+      }), { 'Content-Type': 'application/json; charset=utf-8' });
+      return;
+    }
+
+    if (req.method === 'GET' && p === '/api/sync/manifest') {
+      const pages = loadIndex()
+        .map(({ file, ...m }) => m)
+        .sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
+      send(res, 200, JSON.stringify({
+        ok: true, name: hostName, version: VERSION, platform: PLATFORM,
+        count: pages.length, pages, deletions: loadDeletions()
+      }), { 'Content-Type': 'application/json; charset=utf-8' });
+      return;
+    }
+
+    const pm = p.match(/^\/api\/sync\/page\/([\w-]+)$/);
+    if (pm) {
+      const id = pm[1];
+      if (req.method === 'GET') {
+        const meta = loadIndex().find(x => x.id === id);
+        if (!meta) { send(res, 404, 'not found'); return; }
+        try {
+          const html = fs.readFileSync(path.join(DATA_DIR, meta.file || (id + '.html')), 'utf8');
+          send(res, 200, html, { 'Content-Type': 'text/html; charset=utf-8' });
+        } catch { send(res, 404, 'not found'); }
+        return;
+      }
+      if (req.method === 'PUT') {
+        readBody(req, MAX_BODY, (err, buf) => {
+          if (err) { send(res, 413, JSON.stringify({ ok: false, error: 'too large' }), { 'Content-Type': 'application/json' }); return; }
+          const html = buf.toString('utf8');
+          if (!html) { send(res, 400, JSON.stringify({ ok: false, error: 'empty body' }), { 'Content-Type': 'application/json' }); return; }
+          let metaIn = null;
+          const b64 = req.headers['x-pv-meta'];
+          if (b64) { try { metaIn = JSON.parse(Buffer.from(String(b64), 'base64').toString('utf8')); } catch { /* 头解析失败就靠文件头注释 */ } }
+          const r = upsertPageFromPeer(id, html, metaIn);
+          send(res, 200, JSON.stringify(r), { 'Content-Type': 'application/json; charset=utf-8' });
+          if (r.written) broadcastSaved({ id, title: r.title || 'Untitled' });
+        });
+        return;
+      }
+      if (req.method === 'DELETE') {
+        const list = loadIndex();
+        const meta = list.find(x => x.id === id);
+        if (meta) {
+          try { fs.unlinkSync(path.join(DATA_DIR, meta.file || (id + '.html'))); } catch { /* 已不存在 */ }
+          saveIndex(list.filter(x => x.id !== id));
+          addDeletion(id);
+          broadcastDeleted(id);
+        }
+        send(res, 200, JSON.stringify({ ok: true }), { 'Content-Type': 'application/json; charset=utf-8' });
+        return;
+      }
+    }
+
+    const mm = p.match(/^\/api\/sync\/meta\/([\w-]+)$/);
+    if (req.method === 'PUT' && mm) {
+      readBody(req, 64 * 1024, (err, buf) => {
+        if (err) { send(res, 413, JSON.stringify({ ok: false }), { 'Content-Type': 'application/json' }); return; }
+        let body = {};
+        try { body = JSON.parse(buf.toString('utf8')); } catch { /* 空 body */ }
+        const list = loadIndex();
+        const meta = list.find(x => x.id === mm[1]);
+        if (!meta) { send(res, 404, JSON.stringify({ ok: false }), { 'Content-Type': 'application/json' }); return; }
+        if (String(body.starredAt || '') > String(meta.starredAt || '')) {
+          meta.starred = !!body.starred;
+          meta.starredAt = body.starredAt || '';
+          saveIndex(list);
+          broadcastMeta({ type: 'starred', id: meta.id, starred: !!meta.starred });
+        }
+        send(res, 200, JSON.stringify({ ok: true }), { 'Content-Type': 'application/json; charset=utf-8' });
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && p === '/api/sync/deletions') {
+      readBody(req, 1024 * 1024, (err, buf) => {
+        if (err) { send(res, 413, JSON.stringify({ ok: false }), { 'Content-Type': 'application/json' }); return; }
+        let incoming = [];
+        try { const a = JSON.parse(buf.toString('utf8')); incoming = Array.isArray(a) ? a : []; } catch { /* 忽略 */ }
+        const merged = mergeDeletions(incoming);
+        send(res, 200, JSON.stringify({ ok: true, total: merged.length }), { 'Content-Type': 'application/json; charset=utf-8' });
+      });
+      return;
+    }
+
+    send(res, 404, JSON.stringify({ ok: false, error: 'not found' }), { 'Content-Type': 'application/json' });
     return;
   }
 
@@ -630,5 +959,6 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`网页收藏 sync server running at http://localhost:${PORT}`);
-  restartSyncTimer(); // 按保存的同步配置恢复轮询
+  ensureSyncServer();   // 确保本机作为同步源的令牌已生成
+  restartSyncTimer();   // 按保存的同步配置恢复轮询
 });

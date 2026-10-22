@@ -208,6 +208,27 @@
   #syncStatus { font-size:11px; color:var(--muted); line-height:1.6; min-height:16px; word-break:break-all; }
   #syncStatus.err { color:var(--danger); }
   #syncStatus.ok { color:#2ea043; }
+  /* 同步目标列表（WebDAV 网盘 / 另一台 PageVault 服务器） */
+  #syncTargets { display:flex; flex-direction:column; gap:6px; margin:0 0 10px; }
+  .tgt { display:flex; align-items:center; gap:7px; padding:7px 9px; border:1px solid var(--border);
+    border-radius:8px; background:var(--bg); font-size:12px; }
+  .tgt.off { opacity:.55; }
+  .tgt .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tgt .badge { font-size:10px; border:1px solid var(--border); border-radius:4px; padding:1px 5px;
+    color:var(--muted); white-space:nowrap; }
+  .tgt .acts { display:flex; gap:2px; }
+  .tgt .acts button { border:none; background:transparent; color:var(--muted); cursor:pointer;
+    font-size:12px; padding:2px 4px; border-radius:4px; line-height:1.4; }
+  .tgt .acts button:hover { color:var(--accent); background:var(--accent-bg); }
+  .tgtEmpty { font-size:11px; color:var(--muted); padding:6px 0; }
+  .copyRow { display:flex; gap:6px; }
+  .copyRow input { flex:1; min-width:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; }
+  .copyRow button { white-space:nowrap; padding:6px 10px; border:1px solid var(--border); border-radius:7px;
+    background:var(--btn-bg); color:var(--btn-text); font-size:12px; cursor:pointer; }
+  .copyRow button:hover { border-color:var(--accent); color:var(--accent); }
+  .hint { font-size:11px; color:var(--muted); line-height:1.6; margin:6px 0 0; word-break:break-all; }
+  .hint code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--accent-bg);
+    padding:1px 4px; border-radius:3px; }
 </style>
 </head>
 <body>
@@ -262,29 +283,65 @@
       <button data-v="xl" data-i18n="fsXLarge">特大</button>
     </div>
     <h2 data-i18n="accountSync">账号与同步</h2>
-    <p class="panelTip" data-i18n="syncTip">登录同一个 WebDAV 账号（坚果云 / Nextcloud / 群晖等），多端即可自动同步收藏，数据只存在你自己的网盘。</p>
-    <div class="field"><label data-i18n="davUrl">WebDAV 服务器地址</label>
-      <input id="syncUrl" placeholder="https://dav.jianguoyun.com/dav/" spellcheck="false" /></div>
-    <div class="field"><label data-i18n="davUser">账号</label>
-      <input id="syncUser" autocomplete="username" spellcheck="false" /></div>
-    <div class="field"><label data-i18n="davPass">密码 / 授权码</label>
-      <input id="syncPass" type="password" autocomplete="current-password" /></div>
-    <div class="field"><label data-i18n="syncDir">同步目录</label>
-      <input id="syncDir" placeholder="pagevault" spellcheck="false" /></div>
-    <div class="field"><label data-i18n="syncInterval">同步间隔</label>
-      <div class="seg" id="syncIntervalSeg">
-        <button data-v="0" data-i18n="syncOff">关闭</button>
-        <button data-v="10" data-i18n="sync10s">10 秒</button>
-        <button data-v="30" data-i18n="sync30s">30 秒</button>
-        <button data-v="60" data-i18n="sync1m">1 分钟</button>
+    <p class="panelTip" data-i18n="syncTip">多端同步靠"同步目标"：可以填自己的 WebDAV 网盘，也可以填另一台装了网页收藏的机器（比如家里的 NAS）。同一份库可以挂多个目标，互相当备份。</p>
+    <div id="syncTargets"></div>
+    <div class="btnrow">
+      <button id="syncAddBtn" data-i18n="addTarget">+ 添加同步目标</button>
+      <button id="syncNowBtn" data-i18n="syncNow">立即同步</button>
+    </div>
+
+    <div id="syncEditor" style="display:none">
+      <div class="field"><label data-i18n="targetType">目标类型</label>
+        <div class="seg" id="tgtTypeSeg">
+          <button data-v="webdav" data-i18n="tWebdav">WebDAV 网盘</button>
+          <button data-v="peer" data-i18n="tPeer">PageVault 服务器</button>
+        </div>
+      </div>
+      <div class="field"><label data-i18n="targetName">名称（随便起）</label>
+        <input id="tgtName" placeholder="坚果云 / 家里的 NAS" spellcheck="false" /></div>
+      <div class="field"><label data-i18n="tgtUrl">服务器地址</label>
+        <input id="tgtUrl" placeholder="https://dav.jianguoyun.com/dav/ 或 http://192.168.1.10:8731" spellcheck="false" /></div>
+      <div id="tgtWebdavFields">
+        <div class="field"><label data-i18n="davUser">账号</label>
+          <input id="tgtUser" autocomplete="username" spellcheck="false" /></div>
+        <div class="field"><label data-i18n="davPass">密码 / 授权码</label>
+          <input id="tgtPass" type="password" autocomplete="current-password" /></div>
+        <div class="field"><label data-i18n="syncDir">同步目录</label>
+          <input id="tgtDir" placeholder="pagevault" spellcheck="false" /></div>
+      </div>
+      <div id="tgtPeerFields" style="display:none">
+        <div class="field"><label data-i18n="peerToken">同步令牌</label>
+          <input id="tgtToken" spellcheck="false" autocomplete="off" /></div>
+        <p class="hint" data-i18n="peerTokenTip">令牌在那台机器的「本机作为同步源」里复制。填了它，本机就能把库推给那台机器、也能从它拉回来。</p>
+      </div>
+      <div class="field"><label data-i18n="syncInterval">自动同步</label>
+        <div class="seg" id="tgtIntervalSeg">
+          <button data-v="0" data-i18n="syncOff">关闭</button>
+          <button data-v="10" data-i18n="sync10s">10 秒</button>
+          <button data-v="30" data-i18n="sync30s">30 秒</button>
+          <button data-v="60" data-i18n="sync1m">1 分钟</button>
+        </div>
+      </div>
+      <div class="btnrow">
+        <button id="tgtTestBtn" data-i18n="testConn">测试连接</button>
+        <button id="tgtSaveBtn" data-i18n="saveSync">保存</button>
+        <button id="tgtCancelBtn" data-i18n="cancel">取消</button>
+      </div>
+    </div>
+    <div id="syncStatus"></div>
+
+    <h2 data-i18n="syncSource">本机作为同步源</h2>
+    <p class="panelTip" data-i18n="syncSourceTip">在别的设备上添加同步目标时，地址填本机的局域网地址（下方已列出）+ 这个令牌，就能把这里当作同步枢纽或备份。</p>
+    <div class="field"><label data-i18n="peerToken">同步令牌</label>
+      <div class="copyRow">
+        <input id="srcToken" readonly spellcheck="false" />
+        <button id="copyTokenBtn" data-i18n="copy">复制</button>
       </div>
     </div>
     <div class="btnrow">
-      <button id="syncTestBtn" data-i18n="testConn">测试连接</button>
-      <button id="syncSaveBtn" data-i18n="saveSync">保存</button>
-      <button id="syncNowBtn" data-i18n="syncNow">立即同步</button>
+      <button id="resetTokenBtn" data-i18n="resetToken">重新生成令牌</button>
     </div>
-    <div id="syncStatus"></div>
+    <div class="hint" id="srcAddrs"></div>
     <h2 data-i18n="backup">备份</h2>
     <p class="panelTip" data-i18n="backupTip">导出整库为 zip 备份；换电脑、重装系统后可以导入恢复。</p>
     <div class="btnrow">
@@ -413,11 +470,24 @@
       extPathNone: '（未找到扩展目录，请从安装包里的 extension 文件夹加载）',
       // 账号与同步
       accountSync: '账号与同步',
-      syncTip: '登录同一个 WebDAV 账号（坚果云 / Nextcloud / 群晖等），多端即可自动同步收藏，数据只存在你自己的网盘。',
+      syncTip: '多端同步靠“同步目标”：可以填自己的 WebDAV 网盘，也可以填另一台装了网页收藏的机器（比如家里的 NAS）。同一份库可以挂多个目标，互相当备份。',
       davUrl: 'WebDAV 服务器地址', davUser: '账号', davPass: '密码 / 授权码',
-      syncDir: '同步目录', syncInterval: '同步间隔',
+      syncDir: '同步目录', syncInterval: '自动同步',
       syncOff: '关闭', sync10s: '10 秒', sync30s: '30 秒', sync1m: '1 分钟',
-      testConn: '测试连接', saveSync: '保存', syncNow: '立即同步',
+      testConn: '测试连接', saveSync: '保存', syncNow: '立即同步', cancel: '取消',
+      addTarget: '＋ 添加同步目标', targetType: '目标类型',
+      tWebdav: 'WebDAV 网盘', tPeer: 'PageVault 服务器', targetName: '名称（随便起）',
+      tgtUrl: '服务器地址',
+      peerToken: '同步令牌',
+      peerTokenTip: '令牌在那台机器的「本机作为同步源」里复制。填了它，本机就能把库推给那台机器、也能从它拉回来。',
+      syncSource: '本机作为同步源',
+      syncSourceTip: '在别的设备上添加同步目标时，地址填本机的局域网地址（下方已列出）加这个令牌，就能把这里当作同步枢纽或备份。',
+      copy: '复制', copied: '已复制', resetToken: '重新生成令牌', tokenReset: '令牌已重置，其他设备的旧令牌需要重新填',
+      noTargets: '还没有同步目标。点上面「添加同步目标」，填 WebDAV 网盘或另一台机器的地址即可开始多端同步。',
+      targetSaved: '已保存，正在同步…', targetDeleted: '已删除该目标',
+      targetOn: '启用', targetOff: '已停用', remove: '删除', peerBadge: '对端',
+      peerCount: (n) => n + ' 个页面',
+      srcAddrs: (list) => '本机地址：' + list,
       syncTesting: '正在测试连接…', syncTestingOk: '连接成功，可以保存了', syncSaveOk: '已保存，正在同步…',
       syncDisabled: '同步未开启', syncing: '同步中…', syncNever: '尚未同步',
       syncedAt: (hm) => '已同步 ' + hm, syncErr: (e) => '同步失败：' + e,
@@ -482,11 +552,24 @@
       extPathNone: '(Extension folder not found — load it from the extension/ folder in the download)',
       // Account & sync
       accountSync: 'Account & Sync',
-      syncTip: 'Sign in with the same WebDAV account (Jianguoyun / Nextcloud / Synology…) on every device — pages sync automatically and stay in your own cloud.',
+      syncTip: 'Multi-device sync works through "sync targets": your own WebDAV drive, or another machine running PageVault (a home NAS, for example). One library can have several targets backing each other up.',
       davUrl: 'WebDAV server URL', davUser: 'Account', davPass: 'Password / app token',
-      syncDir: 'Sync folder', syncInterval: 'Sync interval',
+      syncDir: 'Sync folder', syncInterval: 'Auto sync',
       syncOff: 'Off', sync10s: '10 s', sync30s: '30 s', sync1m: '1 min',
-      testConn: 'Test connection', saveSync: 'Save', syncNow: 'Sync now',
+      testConn: 'Test connection', saveSync: 'Save', syncNow: 'Sync now', cancel: 'Cancel',
+      addTarget: '＋ Add sync target', targetType: 'Target type',
+      tWebdav: 'WebDAV drive', tPeer: 'PageVault server', targetName: 'Name (anything)',
+      tgtUrl: 'Server address',
+      peerToken: 'Sync token',
+      peerTokenTip: 'Copy the token from "This machine as a sync source" on that machine. With it, this device can push to and pull from that server.',
+      syncSource: 'This machine as a sync source',
+      syncSourceTip: 'When adding a sync target on another device, use this machine\'s LAN address (listed below) plus this token to make it your sync hub or backup.',
+      copy: 'Copy', copied: 'Copied', resetToken: 'Regenerate token', tokenReset: 'Token regenerated — other devices must be updated',
+      noTargets: 'No sync targets yet. Click "Add sync target" above and enter a WebDAV drive or another machine to start syncing.',
+      targetSaved: 'Saved — syncing…', targetDeleted: 'Target removed',
+      targetOn: 'On', targetOff: 'Disabled', remove: 'Remove', peerBadge: 'Peer',
+      peerCount: (n) => n + ' pages',
+      srcAddrs: (list) => 'Local addresses: ' + list,
       syncTesting: 'Testing connection…', syncTestingOk: 'Connected — you can save now', syncSaveOk: 'Saved — syncing…',
       syncDisabled: 'Sync off', syncing: 'Syncing…', syncNever: 'Never synced',
       syncedAt: (hm) => 'Synced ' + hm, syncErr: (e) => 'Sync failed: ' + e,
@@ -518,7 +601,8 @@
     try {
       const r = await fetch('/api/prefs');
       const s = await r.json();
-      if (s && (s.theme || s.lang)) { prefs = Object.assign({}, prefs, s); return; }
+      // 服务端是权威来源（含同步目标与令牌）；拿不到才退回本地缓存
+      if (s && typeof s === 'object' && !s.error) { prefs = Object.assign({}, prefs, s); return; }
     } catch { /* 服务端不可用走本地 */ }
     try { prefs = Object.assign({}, prefs, JSON.parse(localStorage.getItem(LS_KEY) || '{}')); } catch { /* 忽略 */ }
   }
@@ -908,6 +992,17 @@
     else if (s.status === 'error') { sbSyncDot.className = 'dot bad'; sbSyncText.textContent = t('syncErr', s.lastError || 'unknown'); }
     else if (s.lastSyncAt) { sbSyncDot.className = 'dot ok'; sbSyncText.textContent = t('syncedAt', fmtHM(s.lastSyncAt)); }
     else { sbSyncDot.className = 'dot'; sbSyncText.textContent = t('syncNever'); }
+    // 同步目标列表的状态点就地改色（不整块重建，避免打断正在编辑的表单）
+    if (targetsBox && targetsBox.children.length) {
+      const arr = (st && st.sync && st.sync.targets) || [];
+      for (const row of targetsBox.children) {
+        const dd = row.querySelector ? row.querySelector('.tdot') : null;
+        if (!dd) continue;
+        const s2 = arr.find(x => x.id === row.dataset.id);
+        dd.className = 'dot tdot ' + (!s2 ? '' : (s2.status === 'error' ? 'bad' : s2.status === 'syncing' ? 'warn' : (s2.lastSyncAt ? 'ok' : '')));
+        dd.title = s2 && s2.lastError ? s2.lastError : '';
+      }
+    }
     // 右侧：计数 + 版本（带端名，方便确认自己连的是桌面端还是 Docker 端）
     sbCount.textContent = st && st.counts ? t('sbCount', st.counts.total, st.counts.starred) : '';
     const platName = st ? (st.platform === 'docker' ? t('platDocker') : st.platform === 'desktop' ? t('platDesktop') : t('platWeb')) : '';
@@ -1142,62 +1237,222 @@
   let localVersionCache = '';
   if (pv) pv.invoke('updater:version').then(v => { localVersionCache = v || ''; }).catch(() => {});
 
-  // ---------- 账号与同步（WebDAV：同一账号 = 多端同步） ----------
-  const syncUrl = document.getElementById('syncUrl');
-  const syncUser = document.getElementById('syncUser');
-  const syncPass = document.getElementById('syncPass');
-  const syncDir = document.getElementById('syncDir');
+  // ---------- 账号与同步（多目标：WebDAV 网盘 / PageVault 服务器） ----------
+  // 设计要点：同步目标是一张列表，每个目标独立启用/独立间隔。
+  // 这样桌面端可以「坚果云 + 家里 NAS」双挂，NAS 自己也能挂 WebDAV 做异地备份。
   const syncStatus = document.getElementById('syncStatus');
-  let pendingInterval = (prefs.sync && prefs.sync.intervalSec) || 0;
+  const targetsBox = document.getElementById('syncTargets');
+  const syncEditor = document.getElementById('syncEditor');
+  const tgtTypeSeg = document.getElementById('tgtTypeSeg');
+  const tgtName = document.getElementById('tgtName');
+  const tgtUrl = document.getElementById('tgtUrl');
+  const tgtUser = document.getElementById('tgtUser');
+  const tgtPass = document.getElementById('tgtPass');
+  const tgtDir = document.getElementById('tgtDir');
+  const tgtToken = document.getElementById('tgtToken');
+  const tgtIntervalSeg = document.getElementById('tgtIntervalSeg');
+  let editingId = null;      // null = 新增
+  let editorType = 'webdav';
+  let editorInterval = 10;
 
-  function syncFormValues() {
+  function syncTargets() {
+    if (!prefs.sync || !Array.isArray(prefs.sync.targets)) {
+      // 兼容 1.0.x 的单 WebDAV 配置
+      const s = prefs.sync || {};
+      prefs.sync = {
+        intervalSec: s.intervalSec || 0,
+        targets: (s.url && s.user)
+          ? [{ id: 'webdav-1', type: 'webdav', name: 'WebDAV', enabled: true, url: s.url, user: s.user,
+               pass: s.pass, dir: s.dir || 'pagevault', intervalSec: s.intervalSec || 0 }]
+          : []
+      };
+    }
+    return prefs.sync.targets;
+  }
+
+  function tgtStatusOf(id) {
+    const arr = lastStatus && lastStatus.sync && lastStatus.sync.targets;
+    return arr ? arr.find(x => x.id === id) : null;
+  }
+
+  function mkBtn(txt, title, fn) {
+    const b = document.createElement('button');
+    b.textContent = txt;
+    b.title = title;
+    b.addEventListener('click', fn);
+    return b;
+  }
+
+  function renderTargets() {
+    const list = syncTargets();
+    targetsBox.textContent = '';
+    if (!list.length) {
+      const d = document.createElement('div');
+      d.className = 'tgtEmpty';
+      d.textContent = t('noTargets');
+      targetsBox.appendChild(d);
+      return;
+    }
+    for (const tg of list) {
+      const st = tgtStatusOf(tg.id);
+      const row = document.createElement('div');
+      row.className = 'tgt' + (tg.enabled === false ? ' off' : '');
+      row.dataset.id = tg.id;
+      const chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.checked = tg.enabled !== false;
+      chk.title = tg.enabled === false ? t('targetOff') : t('targetOn');
+      chk.style.accentColor = 'var(--accent)';
+      chk.addEventListener('change', async () => {
+        tg.enabled = chk.checked;
+        row.classList.toggle('off', !chk.checked);
+        await savePrefs();
+        refreshStatus();
+      });
+      const dot = document.createElement('i');
+      dot.className = 'dot tdot ' + (!st ? '' : (st.status === 'error' ? 'bad' : st.status === 'syncing' ? 'warn' : (st.lastSyncAt ? 'ok' : '')));
+      dot.title = st && st.lastError ? st.lastError : '';
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = tg.name || tg.url;
+      nm.title = (tg.url || '') + (st && st.lastError ? '\n' + st.lastError : '');
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = tg.type === 'peer' ? t('peerBadge') : 'WebDAV';
+      const acts = document.createElement('span');
+      acts.className = 'acts';
+      acts.appendChild(mkBtn('✎', t('saveSync'), () => openEditor(tg)));
+      acts.appendChild(mkBtn('✕', t('remove'), () => removeTarget(tg.id)));
+      row.append(chk, dot, nm, badge, acts);
+      targetsBox.appendChild(row);
+    }
+  }
+
+  function applyEditorType() {
+    document.querySelectorAll('#tgtTypeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === editorType));
+    document.getElementById('tgtWebdavFields').style.display = editorType === 'webdav' ? '' : 'none';
+    document.getElementById('tgtPeerFields').style.display = editorType === 'peer' ? '' : 'none';
+    tgtUrl.placeholder = editorType === 'peer' ? 'http://192.168.1.10:8731' : 'https://dav.jianguoyun.com/dav/';
+  }
+
+  function openEditor(tg) {
+    editingId = tg ? tg.id : null;
+    editorType = tg ? tg.type : 'webdav';
+    editorInterval = tg ? (tg.intervalSec == null ? 0 : Number(tg.intervalSec)) : 10;
+    tgtName.value = tg ? (tg.name || '') : '';
+    tgtUrl.value = tg ? (tg.url || '') : '';
+    tgtUser.value = tg ? (tg.user || '') : '';
+    tgtPass.value = tg ? (tg.pass || '') : '';
+    tgtDir.value = tg ? (tg.dir || '') : '';
+    tgtToken.value = tg ? (tg.token || '') : '';
+    applyEditorType();
+    document.querySelectorAll('#tgtIntervalSeg button').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === editorInterval));
+    syncEditor.style.display = '';
+    syncStatus.textContent = '';
+    syncStatus.className = '';
+    fitSettingsPanel();
+    tgtName.focus();
+  }
+
+  tgtTypeSeg.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-v]');
+    if (!btn) return;
+    editorType = btn.dataset.v;
+    applyEditorType();
+  });
+  tgtIntervalSeg.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-v]');
+    if (!btn) return;
+    editorInterval = Number(btn.dataset.v);
+    document.querySelectorAll('#tgtIntervalSeg button').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === editorInterval));
+  });
+  document.getElementById('syncAddBtn').addEventListener('click', () => openEditor(null));
+  document.getElementById('tgtCancelBtn').addEventListener('click', () => {
+    syncEditor.style.display = 'none';
+    editingId = null;
+  });
+
+  function editorValues() {
     return {
-      url: syncUrl.value.trim(),
-      user: syncUser.value.trim(),
-      pass: syncPass.value,
-      dir: syncDir.value.trim() || 'pagevault',
-      intervalSec: pendingInterval
+      type: editorType,
+      url: tgtUrl.value.trim(),
+      user: tgtUser.value.trim(),
+      pass: tgtPass.value,
+      dir: tgtDir.value.trim() || 'pagevault',
+      token: tgtToken.value.trim()
     };
   }
-  function loadSyncForm() {
-    const s = prefs.sync || {};
-    syncUrl.value = s.url || '';
-    syncUser.value = s.user || '';
-    syncPass.value = s.pass || '';
-    syncDir.value = s.dir || '';
-    pendingInterval = s.intervalSec || 0;
-    document.querySelectorAll('#syncIntervalSeg button').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === pendingInterval));
-  }
-  document.getElementById('syncIntervalSeg').addEventListener('click', (ev) => {
-    const v = ev.target.dataset && ev.target.dataset.v;
-    if (v === undefined) return;
-    pendingInterval = Number(v);
-    document.querySelectorAll('#syncIntervalSeg button').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === pendingInterval));
-  });
-  document.getElementById('syncTestBtn').addEventListener('click', async () => {
-    const v = syncFormValues();
-    if (!v.url || !v.user) { syncStatus.textContent = t('syncNeedCfg'); syncStatus.className = 'err'; return; }
+
+  document.getElementById('tgtTestBtn').addEventListener('click', async () => {
+    const v = editorValues();
+    if (!v.url || (v.type === 'webdav' && !v.user)) {
+      syncStatus.textContent = t('syncNeedCfg'); syncStatus.className = 'err'; return;
+    }
     syncStatus.textContent = t('syncTesting'); syncStatus.className = '';
     try {
       const r = await fetch('/api/sync/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
       const res = await r.json();
-      syncStatus.textContent = res.ok ? t('syncTestingOk') : (res.message || 'HTTP ' + r.status);
+      if (res.ok && res.info) {
+        syncStatus.textContent = t('syncTestingOk') + ' · ' +
+          (res.info.platform === 'docker' ? t('platDocker') : res.info.platform === 'desktop' ? t('platDesktop') : t('platWeb')) +
+          ' v' + res.info.version + ' · ' + t('peerCount', res.info.count);
+      } else {
+        syncStatus.textContent = res.ok ? t('syncTestingOk') : (res.message || 'HTTP ' + r.status);
+      }
       syncStatus.className = res.ok ? 'ok' : 'err';
     } catch (e) { syncStatus.textContent = t('syncErr', e && e.message); syncStatus.className = 'err'; }
   });
-  document.getElementById('syncSaveBtn').addEventListener('click', async () => {
-    const v = syncFormValues();
-    if (!v.url || !v.user) { syncStatus.textContent = t('syncNeedCfg'); syncStatus.className = 'err'; return; }
-    prefs.sync = v;
-    await savePrefs(); // 保存后服务端自动恢复/停止轮询
-    syncStatus.textContent = t('syncSaveOk'); syncStatus.className = 'ok';
-    loadSyncForm();
-    setTimeout(runSync, 300); // 存完立刻同步一轮
+
+  document.getElementById('tgtSaveBtn').addEventListener('click', async () => {
+    const v = editorValues();
+    if (!v.url || (v.type === 'webdav' && !v.user)) {
+      syncStatus.textContent = t('syncNeedCfg'); syncStatus.className = 'err'; return;
+    }
+    const list = syncTargets();
+    const cur = editingId ? list.find(x => x.id === editingId) : null;
+    const item = {
+      id: editingId || ('t' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)),
+      type: v.type,
+      name: tgtName.value.trim() || (v.type === 'peer' ? t('tPeer') : 'WebDAV'),
+      enabled: cur ? cur.enabled !== false : true,
+      url: v.url,
+      intervalSec: editorInterval
+    };
+    if (v.type === 'webdav') {
+      item.user = v.user; item.pass = v.pass; item.dir = v.dir;
+    } else {
+      item.token = v.token;
+    }
+    if (cur) Object.assign(cur, item); else list.push(item);
+    prefs.sync = { intervalSec: prefs.sync.intervalSec || 0, targets: list };
+    await savePrefs();
+    await loadPrefs();          // 服务端会规整目标（补 id、丢掉无效项）
+    renderTargets();
+    syncEditor.style.display = 'none';
+    editingId = null;
+    syncStatus.textContent = t('targetSaved'); syncStatus.className = 'ok';
+    refreshStatus();
+    setTimeout(runSync, 300);
   });
+
+  async function removeTarget(id) {
+    const list = syncTargets();
+    const i = list.findIndex(x => x.id === id);
+    if (i < 0) return;
+    list.splice(i, 1);
+    prefs.sync = { intervalSec: prefs.sync.intervalSec || 0, targets: list };
+    await savePrefs();
+    renderTargets();
+    syncStatus.textContent = t('targetDeleted'); syncStatus.className = '';
+    refreshStatus();
+  }
+
   document.getElementById('syncNowBtn').addEventListener('click', () => runSync());
+
   async function runSync() {
-    const v = syncFormValues();
-    if (!v.url || !v.user) { syncStatus.textContent = t('syncNeedCfg'); syncStatus.className = 'err'; return; }
+    if (!syncTargets().length) {
+      syncStatus.textContent = t('noTargets'); syncStatus.className = ''; return;
+    }
     syncStatus.textContent = t('syncing'); syncStatus.className = '';
     try {
       const r = await fetch('/api/sync/run', { method: 'POST' });
@@ -1211,6 +1466,35 @@
       }
     } catch (e) { syncStatus.textContent = t('syncErr', e && e.message); syncStatus.className = 'err'; }
   }
+
+  // ---------- 本机作为同步源：令牌 + 本机地址 ----------
+  async function loadSourceInfo() {
+    try {
+      const r = await fetch('/api/sync/token');
+      const d = await r.json();
+      document.getElementById('srcToken').value = d.token || '';
+      const port = d.port || (location.port || '');
+      const addrs = (d.addresses || []).map(a => 'http://' + a.address + (port ? ':' + port : ''));
+      const el = document.getElementById('srcAddrs');
+      el.textContent = addrs.length ? t('srcAddrs', addrs.join('   ')) : '';
+    } catch { /* 服务端不可用就不显示 */ }
+  }
+  document.getElementById('copyTokenBtn').addEventListener('click', async () => {
+    const inp = document.getElementById('srcToken');
+    const v = inp.value;
+    if (!v) return;
+    try { await navigator.clipboard.writeText(v); }
+    catch { inp.select(); try { document.execCommand('copy'); } catch { /* 忽略 */ } }
+    syncStatus.textContent = t('copied'); syncStatus.className = 'ok';
+  });
+  document.getElementById('resetTokenBtn').addEventListener('click', async () => {
+    try {
+      const r = await fetch('/api/sync/token/reset', { method: 'POST' });
+      const d = await r.json();
+      document.getElementById('srcToken').value = d.token || '';
+      syncStatus.textContent = t('tokenReset'); syncStatus.className = 'ok';
+    } catch (e) { syncStatus.textContent = t('syncErr', e && e.message); syncStatus.className = 'err'; }
+  });
 
   // ---------- 备份：整库导出 / 导入 ----------
   document.getElementById('exportBtn').addEventListener('click', () => {
@@ -1273,9 +1557,18 @@
   loadPrefs().then(() => {
     applyTheme();
     applyI18n();
-    loadSyncForm();
+    renderTargets();
+    loadSourceInfo();
     load().then(() => { knownIds = new Set(pages.map(p => p.id)); connectEvents(); });
     refreshStatus();
+    // 便捷入口：带 ?settings=1 打开时直接展开设置面板（方便指导别人配同步、也方便截图）
+    if (/[?&]settings=1/.test(location.search)) {
+      setTimeout(() => {
+        settingsPanel.classList.add('open');
+        fitSettingsPanel();
+        if (/[?&]add=1/.test(location.search)) openEditor(null);
+      }, 300);
+    }
   });
 
 </script>
