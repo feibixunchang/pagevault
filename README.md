@@ -1,5 +1,7 @@
 # PageVault
 
+> GitHub 仓库：https://github.com/feibixunchang/pagevault （私有；如需公开：`gh repo edit --visibility public`）
+
 一个**六端同步**的"整页网页收藏"工具：在浏览器里点一下扩展，就把当前页面**完整**保存下来，落到本地同步库，之后随时离线回看，像本地浏览一样。每条记录都带**来源平台**和**保存时间**。
 
 当前进度：**Mac-first MVP** —— 已跑通"扩展捕获 → 本地同步服务端 → Mac 上阅读"主链路。其他客户端（Windows / Linux / iOS / Android）和 Docker 自托管端在此基座上扩展。
