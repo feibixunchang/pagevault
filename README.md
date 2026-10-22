@@ -4,7 +4,8 @@
 
 一个**六端同步**的"整页网页收藏"工具：在浏览器里点一下扩展，就把当前页面**完整**保存下来，落到本地同步库，之后随时离线回看，像本地浏览一样。每条记录都带**来源平台**和**保存时间**。
 
-当前进度：**Mac-first MVP** —— 已跑通"扩展捕获 → 本地同步服务端 → Mac 上阅读"主链路。其他客户端（Windows / Linux / iOS / Android）和 Docker 自托管端在此基座上扩展。
+当前版本：**v1.0.0**。已实现四端：浏览器扩展 + Mac 桌面端 + Windows 桌面端 + Docker 自托管端（飞牛 NAS 实测运行）。
+下一步：iOS 端（Xcode 原生壳 + WebView 阅读器），之后是 Linux / Android。
 
 ## 架构
 
@@ -19,7 +20,7 @@
    │  WebView 渲染保存的 HTML（后续由原生壳 / Flutter 接管）
 ```
 
-六端 = 5 客户端（Mac / Win / Linux / iOS / Android）+ 1 服务端（Docker）。现在已实现：扩展 + 服务端 + Mac 阅读器。
+六端 = 5 客户端（Mac / Win / Linux / iOS / Android）+ 1 服务端（Docker）。已实现：扩展 + Mac + Windows + Docker（v1.0.0）。
 
 ## 目录
 
@@ -169,6 +170,80 @@ node scripts/stamp-version.js --check  # 只校验（不一致则退出码 1）
 - **导出备份 (.zip)**：整库（索引 + 全部页面）打包下载，换电脑/重装前先来一份
 - **导入备份**：上传之前导出的 zip，按页面 id 合并进当前库（不覆盖已有页面）
 
+## Docker 部署（自托管服务端 / 飞牛 NAS）
+
+容器里跑的就是同一个零依赖 Node 服务端，**不需要数据库、不需要外网、配置只有环境变量**。
+
+### 一条命令起服务（任意装了 Docker 的机器）
+
+```bash
+# 在仓库根目录
+docker compose up -d --build
+# 打开 http://<主机IP>:8731
+```
+
+### 飞牛 NAS（fnOS）步骤
+
+1. 在 NAS 上准备目录（`/vol1/1000` 是飞牛默认用户目录，按实际改）：
+
+   ```bash
+   mkdir -p /vol1/1000/docker/pagevault/data
+   cd /vol1/1000/docker/pagevault
+   ```
+
+2. 把仓库里的 `docker-compose.yml`、`server/`、`extension/` 传上去（或者直接从 tar 包解压，
+   见 `scripts/pack-docker.sh` 生成的 `pagevault-docker-*.tar.gz`），然后改两处：
+
+   ```yaml
+   volumes:
+     - /vol1/1000/docker/pagevault/data:/data   # 绝对路径，别用 ./data
+   environment:
+     PUID: "1000"   # NAS 终端里执行 `id` 看到的 uid
+     PGID: "1000"
+   ```
+
+3. 起容器：
+
+   ```bash
+   docker compose up -d --build
+   docker compose ps      # STATUS 里出现 (healthy) 就算成功
+   docker compose logs -f  # 看启动日志
+   ```
+
+4. 浏览器打开 `http://<NAS的IP>:8731`——底部状态栏会显示 **「Docker 版 v1.0.0」**，
+   说明连的是容器端（和桌面版用的是同一套数据格式）。
+
+### 容器端的扩展怎么装
+
+容器没有本地文件系统入口，所以扩展由服务端直接发整包：
+
+```
+http://<NAS的IP>:8731/api/extension.zip     # 下载后解压，chrome://extensions 加载该文件夹
+```
+
+装完后把扩展 popup 里的「服务器地址」填成 `http://<NAS的IP>:8731`，之后在任何电脑的 Chrome 里
+点一下就能存到 NAS 上。
+
+### 常用运维
+
+| 动作 | 命令 |
+|---|---|
+| 看状态/日志 | `docker compose ps` / `docker compose logs -f` |
+| 重启 | `docker compose restart` |
+| 升级到新版本 | 换上新代码后 `docker compose up -d --build` |
+| 备份 | 打包 `data/` 目录即可（页面 HTML + index.json + 偏好） |
+| 迁移 | 把 `data/` 拷到新机器，起同一个镜像即可 |
+| 卸载（保留数据） | `docker compose down` |
+
+### 端口与目录约定
+
+| 项 | 值 |
+|---|---|
+| 容器内端口 | `8731`（`PORT` 可改） |
+| 数据目录 | `/data`（`PAGEVAULT_DATA` 可改），内含 `pages/` + `index.json` + `prefs.json` |
+| 运行形态标识 | `PAGEVAULT_PLATFORM=docker`（界面据此显示"Docker 版"） |
+| 健康检查 | 内置，每 30 秒 GET `/api/status` |
+
 ## 在 Mac 上运行（MVP）
 
 ### 方式 A：桌面端 App（推荐）
@@ -250,4 +325,4 @@ App 已安装到 `~/Applications/网页收藏.app`，**Launchpad 里搜「网页
 3. ✅ 原生 Mac 壳（Electron），真正的 `.app` 已装到 `~/Applications`
 4. ✅ 阅读器增强：SSE 实时刷新、删除、收藏、全文搜索、阅读模式、导出、自动滚动触发懒加载
 5. 🔜 Windows / Linux / iOS / Android 客户端（共用同一服务端协议；手机端默认阅读模式）
-6. 🔜 Docker 自托管端上线（已备 Dockerfile）+ 端到端加密 + 整库打包导出
+6. ✅ Docker 自托管端上线（飞牛 NAS 实测）+ 🔜 iOS 端（Xcode 原生壳）+ 端到端加密

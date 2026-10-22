@@ -1,12 +1,27 @@
+# 在 server/ 目录下直接起（等价于仓库根目录那份 compose）
+#   cd server && docker compose up -d --build
+# 注意 context 是上一层：镜像需要同时拿到 server/ 和 extension/
 services:
   pagevault:
-    build: .
-    image: pagevault/server:latest
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: pagevault/server:1.0.0
     container_name: pagevault
+    restart: unless-stopped
     ports:
       - "8731:8731"
     environment:
-      - PORT=8731
+      TZ: Asia/Shanghai
+      PORT: "8731"
+      PUID: "1000"
+      PGID: "1000"
     volumes:
-      - ./data:/app/data
-    restart: unless-stopped
+      # 数据落在 server/data（删容器不丢）
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8731/api/status',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3

@@ -314,7 +314,7 @@
     <span class="sb-right">
       <span class="sb-item"><i class="dot" id="sbSyncDot"></i><span id="sbSyncText"></span></span>
       <span id="sbCount"></span>
-      <span class="sb-ver" id="sbVer"></span>
+      <span class="sb-ver" id="sbVer" title=""></span>
     </span>
   </footer>
 
@@ -401,6 +401,9 @@
       // 关于与更新
       aboutUpdate: '关于与更新', checkUpdate: '检查更新', autoUpdate: '启动时自动检查更新',
       curVer: v => '当前版本 v' + v, checkingUpdate: '正在检查更新…', latestVer: '已是最新版本',
+      platDesktop: '桌面版', platDocker: 'Docker 版', platWeb: '网页版',
+      verExt: '浏览器扩展', verExtOff: '浏览器扩展未连接',
+      updInDocker: 'Docker 版更新：拉取新镜像后重启容器',
       updateFail: '检查失败', updateTitle: '发现新版本', updateVerLine: (a, b) => `v${a} → v${b}`,
       later: '以后再说', downloadInstall: '下载并安装', speedTesting: '正在测速各下载渠道…',
       speedResult: n => `${n} 个渠道可用，已选最快的`, noChannel: '所有下载渠道都连不上，请检查网络',
@@ -467,6 +470,9 @@
       // About & update
       aboutUpdate: 'About & Updates', checkUpdate: 'Check for Updates', autoUpdate: 'Check for updates on launch',
       curVer: v => 'Version v' + v, checkingUpdate: 'Checking for updates…', latestVer: 'You are up to date',
+      platDesktop: 'Desktop', platDocker: 'Docker', platWeb: 'Web',
+      verExt: 'Browser extension', verExtOff: 'Browser extension offline',
+      updInDocker: 'To update Docker: pull the new image and restart the container',
       updateFail: 'Check failed', updateTitle: 'New Version Available', updateVerLine: (a, b) => `v${a} → v${b}`,
       later: 'Later', downloadInstall: 'Download & Install', speedTesting: 'Testing download channels…',
       speedResult: n => `${n} channels available — fastest selected`, noChannel: 'No channel reachable, check your network',
@@ -902,9 +908,23 @@
     else if (s.status === 'error') { sbSyncDot.className = 'dot bad'; sbSyncText.textContent = t('syncErr', s.lastError || 'unknown'); }
     else if (s.lastSyncAt) { sbSyncDot.className = 'dot ok'; sbSyncText.textContent = t('syncedAt', fmtHM(s.lastSyncAt)); }
     else { sbSyncDot.className = 'dot'; sbSyncText.textContent = t('syncNever'); }
-    // 右侧：计数 + 版本
+    // 右侧：计数 + 版本（带端名，方便确认自己连的是桌面端还是 Docker 端）
     sbCount.textContent = st && st.counts ? t('sbCount', st.counts.total, st.counts.starred) : '';
-    sbVer.textContent = st ? 'v' + st.version : '';
+    const platName = st ? (st.platform === 'docker' ? t('platDocker') : st.platform === 'desktop' ? t('platDesktop') : t('platWeb')) : '';
+    sbVer.textContent = st ? (platName ? platName + ' v' + st.version : 'v' + st.version) : '';
+    if (st) {
+      const verLines = [platName + ' v' + st.version];
+      verLines.push(ext && ext.online ? t('verExt') + ' v' + (ext.version || '?') : t('verExtOff'));
+      sbVer.title = verLines.join('\n');
+    } else { sbVer.title = ''; }
+    // 关于面板：同样按端显示，浏览器直开时给对应端的更新方式
+    const aboutLine = document.getElementById('aboutVerLine');
+    if (aboutLine && st) {
+      let line = t('curVer', st.version) + '（' + platName + '）';
+      if (ext && ext.online) line += ' · ' + t('verExt') + ' v' + (ext.version || '?');
+      if (!pv && st.platform === 'docker') line += ' · ' + t('updInDocker');
+      aboutLine.textContent = line;
+    }
     // 首次引导条：扩展从未连接过、且用户没关过
     extBanner.classList.toggle('show', (!ext || !ext.lastSeen) && !bannerDismissed());
   }

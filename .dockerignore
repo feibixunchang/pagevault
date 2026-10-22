@@ -1,0 +1,15 @@
+# 构建上下文是仓库根目录（镜像里要带 server/ 和 extension/），
+# 这些东西不该进镜像层，否则每次构建都白传几十上百 MB。
+.git
+.gitignore
+desktop
+docs
+ios
+scripts
+**/node_modules
+**/*.zip
+**/*.dmg
+**/*.log
+server/data
+data
+.DS_Store
