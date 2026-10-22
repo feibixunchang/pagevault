@@ -52,7 +52,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusEl.textContent = m.serverSaved;
   });
   document.getElementById('capture').addEventListener('click', () => doCapture(statusEl));
+
+  showVersions(input.value.trim());
 });
+
+// 版本号：扩展自身来自 manifest，阅读器版本从心跳接口取
+async function showVersions(serverUrl) {
+  const ext = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || '?';
+  const extEl = document.getElementById('verExt');
+  const appWrap = document.getElementById('verApp');
+  const dot = appWrap.querySelector('.dotv');
+  const appTxt = appWrap.querySelector('span:last-child');
+  extEl.textContent = (lang === 'zh' ? '扩展 v' : 'Ext v') + ext;
+  try {
+    const r = await fetch((serverUrl || DEFAULT_SERVER).replace(/\/$/, '') + '/api/ping', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ v: ext })
+    });
+    const j = await r.json();
+    dot.className = 'dotv ok';
+    appTxt.textContent = (lang === 'zh' ? '阅读器 v' : 'Reader v') + (j.server || '?');
+  } catch {
+    dot.className = 'dotv';
+    appTxt.textContent = lang === 'zh' ? '阅读器未启动' : 'Reader offline';
+  }
+}
 
 async function doCapture(statusEl) {
   statusEl.textContent = m.capturing;

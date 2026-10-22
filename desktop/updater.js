@@ -20,17 +20,38 @@ const REPO = 'feibixunchang/pagevault';
 const LATEST_URL = `https://github.com/${REPO}/releases/latest`;
 const UA = 'WebVault-Updater';
 
+// DNS 兜底（DoH + 双栈）。系统 DNS 被 VPN/加速器弄挂时，Node 原生请求会直接 ENOTFOUND，
+// 连 curl 也一样，所以这里复用 server/dnsx.js 先解析出 IP 再连。
+// 打包后布局：Contents/Resources/app/updater.js 与 Contents/Resources/server/dnsx.js 同级目录
+function loadDnsx() {
+  const candidates = [];
+  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'server', 'dnsx.js'));
+  candidates.push(path.join(__dirname, '..', 'server', 'dnsx.js'));
+  for (const c of candidates) {
+    try { return require(c); } catch { /* 试下一个 */ }
+  }
+  return null;
+}
+const dnsx = loadDnsx();
+
 // 小请求：先试 Node 原生 http(s)，失败（企业代理/TLS 拦截等）自动 fallback 到 curl。
 // 返回 { status, headers: {location, content-length, ...}, body: Buffer }
 function httpGet(url, headers, timeoutMs) {
   return nodeGet(url, headers, timeoutMs).catch((e) => curlGet(url, headers, timeoutMs, e));
 }
 
-function nodeGet(url, headers, timeoutMs) {
+async function nodeGet(url, headers, timeoutMs) {
+  const u = new URL(url);
+  const mod = u.protocol === 'https:' ? https : http;
+  const opts = { headers: Object.assign({ 'User-Agent': UA }, headers || {}), timeout: timeoutMs || 12000 };
+  if (dnsx) {
+    try {
+      const { addrs } = await dnsx.resolveHost(u.hostname);
+      if (addrs && addrs.length) opts.lookup = dnsx.pinnedLookup(addrs[0].address, addrs[0].family);
+    } catch { /* 解析失败就交给系统默认 */ }
+  }
   return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const mod = u.protocol === 'https:' ? https : http;
-    const req = mod.get(url, { headers: Object.assign({ 'User-Agent': UA }, headers || {}), timeout: timeoutMs || 12000 }, (res) => {
+    const req = mod.get(url, opts, (res) => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve({
@@ -67,11 +88,18 @@ function curlGet(url, headers, timeoutMs, origErr) {
 }
 
 // 流式 GET（下载大文件用）：返回 { status, headers, stream }；Node 失败时 fallback curl 子进程 stdout
-function httpGetStream(url, headers, timeoutMs) {
+async function httpGetStream(url, headers, timeoutMs) {
+  const u = new URL(url);
+  const mod = u.protocol === 'https:' ? https : http;
+  const opts = { headers: Object.assign({ 'User-Agent': UA }, headers || {}), timeout: timeoutMs || 30000 };
+  if (dnsx) {
+    try {
+      const { addrs } = await dnsx.resolveHost(u.hostname);
+      if (addrs && addrs.length) opts.lookup = dnsx.pinnedLookup(addrs[0].address, addrs[0].family);
+    } catch { /* 解析失败交给系统 */ }
+  }
   return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const mod = u.protocol === 'https:' ? https : http;
-    const req = mod.get(url, { headers: Object.assign({ 'User-Agent': UA }, headers || {}), timeout: timeoutMs || 30000 }, (res) => {
+    const req = mod.get(url, opts, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) { res.resume(); reject(Object.assign(new Error('redirect'), { redirect: res.headers.location })); return; }
       resolve({ status: res.statusCode, headers: { location: '', 'content-length': res.headers['content-length'] || '' }, stream: res });
     });

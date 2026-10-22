@@ -33,7 +33,11 @@
   }
   * { box-sizing: border-box; }
   /* 界面字体：默认跟随系统；设置里可换宋体/楷体/黑体/圆体等（字体名同时覆盖 mac/Win，两端都有效） */
-  :root { --app-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  :root { --app-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif; --app-zoom: 1; }
+  /* 界面字体大小：整体缩放（等效浏览器缩放，布局同步放大，不出现错位） */
+  html[data-fs="s"]  { --app-zoom: 0.9; }
+  html[data-fs="l"]  { --app-zoom: 1.1; }
+  html[data-fs="xl"] { --app-zoom: 1.22; }
   html[data-font="songti"]  { --app-font: SimSun, "Songti SC", STSong, "Noto Serif CJK SC", "Source Han Serif SC", serif; }
   html[data-font="kaiti"]   { --app-font: KaiTi, "Kaiti SC", STKaiti, "Noto Serif CJK SC", "Source Han Serif SC", serif; }
   html[data-font="heiti"]   { --app-font: SimHei, "Heiti SC", STHeiti, "Noto Sans CJK SC", "Source Han Sans SC", sans-serif; }
@@ -41,7 +45,7 @@
   html[data-font="yahei"]   { --app-font: "Microsoft YaHei", "Microsoft YaHei UI", "PingFang SC", sans-serif; }
   html[data-font="pingfang"]{ --app-font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif; }
   html[data-font="mono"]    { --app-font: "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace; }
-  body { margin:0; font-family:var(--app-font); color:var(--text); background:var(--bg); height:100vh; display:flex; flex-direction:column; }
+  body { margin:0; font-family:var(--app-font); color:var(--text); background:var(--bg); height:calc(100vh / var(--app-zoom)); zoom:var(--app-zoom); display:flex; flex-direction:column; }
   header { padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:14px; }
   header h1 { font-size:16px; margin:0; font-weight:600; }
   header .count { color:var(--muted); font-size:13px; }
@@ -96,9 +100,9 @@
   html.theme-dark { --bg:#131518; --panel:#1c1f26; --border:#2e3340; --text:#e8eaed; --muted:#9aa3af; --accent:#6cb2f2; --accent-bg:#1b2a3c; --btn-bg:#23272f; --btn-text:#e8eaed; --danger:#f28b82; --danger-bg:#3a2222; --danger-border:#5a3636; --star:#f2c94c; --star-off:#6b7280; --starred-bg:#3a3320; --starred-text:#f2c94c; --starred-border:#8a7a3a; --flash-bg:#1e3d2f; --rv-bg:#131518; --rv-text:#dde1e6; --rv-pre:#23272f; --rv-byline-border:#2e3340; --frame-bg:#1a1d22; }
 
   /* 设置按钮与下拉面板 */
-  #settingsBtn { padding:5px 11px; border:1px solid var(--border); border-radius:8px; background:var(--btn-bg); font-size:19px; line-height:1.15; cursor:pointer; color:var(--btn-text); }
+  #settingsBtn { padding:5px 11px; border:1px solid var(--border); border-radius:8px; background:var(--btn-bg); font-size:21px; line-height:1.15; cursor:pointer; color:var(--btn-text); }
   #settingsBtn:hover { border-color:var(--accent); color:var(--accent); }
-  #settingsPanel { display:none; position:fixed; top:52px; right:16px; width:250px; background:var(--panel); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 28px rgba(0,0,0,.16); z-index:50; padding:14px 16px; }
+  #settingsPanel { display:none; position:fixed; top:52px; right:16px; width:250px; max-height:calc(100vh / var(--app-zoom) - 72px); overflow-y:auto; overscroll-behavior:contain; background:var(--panel); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 28px rgba(0,0,0,.16); z-index:50; padding:14px 16px; }
   #settingsPanel.open { display:block; }
   #settingsPanel h2 { font-size:12px; color:var(--muted); margin:0 0 8px; font-weight:600; }
   #settingsPanel h2:not(:first-child) { margin-top:16px; }
@@ -249,6 +253,14 @@
         <option value="mono" data-i18n="fontMono">等宽字体</option>
       </select>
     </div>
+    <h2 data-i18n="uiFontSize">界面字体大小</h2>
+    <p class="panelTip" data-i18n="uiFontSizeTip">整体放大或缩小软件界面（文字、按钮、列表一起缩放），不影响网页内容。</p>
+    <div class="seg" id="fsSeg">
+      <button data-v="s" data-i18n="fsSmall">小</button>
+      <button data-v="m" data-i18n="fsNormal">标准</button>
+      <button data-v="l" data-i18n="fsLarge">大</button>
+      <button data-v="xl" data-i18n="fsXLarge">特大</button>
+    </div>
     <h2 data-i18n="accountSync">账号与同步</h2>
     <p class="panelTip" data-i18n="syncTip">登录同一个 WebDAV 账号（坚果云 / Nextcloud / 群晖等），多端即可自动同步收藏，数据只存在你自己的网盘。</p>
     <div class="field"><label data-i18n="davUrl">WebDAV 服务器地址</label>
@@ -361,6 +373,8 @@
       notArticle: '这个页面暂时抽不出正文（可能不是文章型页面）', readFail: '阅读模式失败：',
       settingsTitle: '设置', theme: '外观', lang: '语言', system: '跟随系统', light: '浅色', dark: '深色',
       uiFont: '界面字体', uiFontTip: '只影响软件界面（列表、按钮、状态栏等）；保存的网页内容保持原页面字体不变。',
+      uiFontSize: '界面字体大小', uiFontSizeTip: '整体放大或缩小软件界面（文字、按钮、列表一起缩放），不影响网页内容。',
+      fsSmall: '小', fsNormal: '标准', fsLarge: '大', fsXLarge: '特大',
       fontSystem: '跟随系统', fontSong: '宋体', fontKai: '楷体', fontHei: '黑体', fontYuan: '圆体',
       fontYahei: '微软雅黑', fontPingfang: '苹方', fontMono: '等宽字体',
       from2: '来源', loading: '加载中…', saved: '已保存', exportFail: '导出失败',
@@ -368,6 +382,9 @@
       // 状态栏 / 扩展连接
       sbServiceRun: '本地服务运行中 · 127.0.0.1:8731', sbServiceDown: '本地服务未连接',
       sbExtOn: '扩展已连接', sbExtOff: '扩展未连接', sbExtNever: '尚未安装扩展',
+      sbExtOnHint: '浏览器扩展正在与本地服务保持心跳',
+      sbExtOffHint: '不用手动打开浏览器：只要浏览器还在运行，扩展会在 30 秒内自动连回；浏览器完全退出时扩展无法运行。',
+      sbExtVerSeen: '上次上报版本',
       installExt: '安装扩展', sbCount: (n, s) => `共 ${n} 个页面 · ★ ${s}`,
       // 首次引导
       bannerText: '还没有安装浏览器扩展——安装后就能在任意网页一键整页保存。',
@@ -421,6 +438,8 @@
       notArticle: 'No article content found (maybe not an article page)', readFail: 'Reader mode failed: ',
       settingsTitle: 'Settings', theme: 'Appearance', lang: 'Language', system: 'System', light: 'Light', dark: 'Dark',
       uiFont: 'Interface font', uiFontTip: 'Applies to the app UI only (list, buttons, status bar); saved pages keep their original fonts.',
+      uiFontSize: 'Interface text size', uiFontSizeTip: 'Scales the whole app UI (text, buttons, list together); saved pages are unaffected.',
+      fsSmall: 'Small', fsNormal: 'Normal', fsLarge: 'Large', fsXLarge: 'Extra large',
       fontSystem: 'Follow system', fontSong: 'Songti (serif)', fontKai: 'Kaiti', fontHei: 'Heiti (sans)', fontYuan: 'Rounded',
       fontYahei: 'Microsoft YaHei', fontPingfang: 'PingFang', fontMono: 'Monospace',
       from2: 'Source', loading: 'Loading…', saved: 'Saved', exportFail: 'Export failed',
@@ -429,6 +448,9 @@
       // Status bar / extension link
       sbServiceRun: 'Local service running · 127.0.0.1:8731', sbServiceDown: 'Local service offline',
       sbExtOn: 'Extension connected', sbExtOff: 'Extension offline', sbExtNever: 'Extension not installed',
+      sbExtOnHint: 'The browser extension is heartbeating with the local service',
+      sbExtOffHint: 'No need to open the browser manually: as long as the browser is running, the extension reconnects within 30 seconds; if the browser is fully quit, the extension cannot run.',
+      sbExtVerSeen: 'Last reported version',
       installExt: 'Install extension', sbCount: (n, s) => `${n} pages · ★ ${s} starred`,
       // First-run banner
       bannerText: 'The browser extension is not installed yet — install it to save any page in one click.',
@@ -525,6 +547,24 @@
     savePrefs();
   });
 
+  // ---------- 界面字体大小 ----------
+  const FS_KEYS = ['s', 'm', 'l', 'xl'];
+  function applyFontSize() {
+    const v = FS_KEYS.includes(prefs.fontSize) ? prefs.fontSize : 'm';
+    if (v === 'm') delete document.documentElement.dataset.fs;
+    else document.documentElement.dataset.fs = v;
+    document.querySelectorAll('#fsSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  }
+  document.getElementById('fsSeg').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-v]');
+    if (!btn) return;
+    prefs.fontSize = btn.dataset.v;
+    applyFontSize();
+    savePrefs();
+    // 缩放变了，面板可用高度跟着变（fitSettingsPanel 在下方声明，函数声明会提升）
+    fitSettingsPanel();
+  });
+
   // ---------- 语言应用 ----------
   function applyI18n() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
@@ -538,6 +578,7 @@
     document.getElementById('onlyStarred').textContent = onlyStarred ? t('starredOn') : t('starred');
     document.querySelectorAll('#langSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === prefs.lang));
     applyFont();
+    applyFontSize();
     countEl.textContent = pages.length ? t('count', pages.length) : '';
     render(searchEl.value);
     renderStatus();
@@ -841,13 +882,17 @@
     else { sbSvcDot.className = 'dot bad'; sbSvc.textContent = t('sbServiceDown'); }
     // 扩展连接（心跳判定：2 分钟内有活动即在线）
     const ext = st && st.extension;
+    const extVer = ext && ext.version ? 'v' + ext.version : '';
     if (ext && ext.online) {
       sbExtDot.className = 'dot ok';
-      sbExtText.textContent = t('sbExtOn');
+      sbExtText.textContent = t('sbExtOn') + (extVer ? ' · ' + extVer : '');
+      sbExtText.title = t('sbExtOnHint');
       sbInstall.style.display = 'none';
     } else {
       sbExtDot.className = ext && ext.lastSeen ? 'dot warn' : 'dot';
       sbExtText.textContent = ext && ext.lastSeen ? t('sbExtOff') : t('sbExtNever');
+      // 说清楚"不用手动打开浏览器"：浏览器还在跑就会自动连回
+      sbExtText.title = t('sbExtOffHint') + (extVer ? '\n' + t('sbExtVerSeen') + ' ' + extVer : '');
       sbInstall.style.display = '';
     }
     // 同步状态
@@ -1174,9 +1219,17 @@
 
   // ---------- 设置面板 ----------
   const settingsPanel = document.getElementById('settingsPanel');
+  // 面板用 position:fixed 又处在 zoom 缩放环境里，vh 计算不可靠，
+  // 直接把可用高度算成 CSS px 写进 maxHeight：窗口高 / 缩放比 - 上下留白。
+  function fitSettingsPanel() {
+    const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-zoom')) || 1;
+    settingsPanel.style.maxHeight = Math.max(260, Math.round(window.innerHeight / z) - 72) + 'px';
+  }
+  window.addEventListener('resize', () => { if (settingsPanel.classList.contains('open')) fitSettingsPanel(); });
   document.getElementById('settingsBtn').addEventListener('click', (ev) => {
     ev.stopPropagation();
     settingsPanel.classList.toggle('open');
+    if (settingsPanel.classList.contains('open')) fitSettingsPanel();
   });
   document.addEventListener('click', (ev) => {
     if (!settingsPanel.contains(ev.target) && ev.target.id !== 'settingsBtn') settingsPanel.classList.remove('open');

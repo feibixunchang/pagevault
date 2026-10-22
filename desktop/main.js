@@ -285,7 +285,7 @@ function createWindow(url) {
     height: 800,
     minWidth: 820,
     minHeight: 600,
-    title: '网页收藏 · 我的网页库',
+    title: '网页收藏 · 我的网页库 v' + app.getVersion(),
     backgroundColor: c.bg,
     webPreferences: {
       nodeIntegration: false,

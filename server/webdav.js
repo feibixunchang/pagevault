@@ -7,6 +7,7 @@
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
+const dnsx = require('./dnsx');
 
 const TIMEOUT = 45000;
 
@@ -28,6 +29,27 @@ function errorDetail(r) {
   return txt;
 }
 
+// 把底层网络错误翻成用户能看懂、能自己动手排查的提示。
+// 经验：绝大多数"同步连不上"都是 DNS（域名写错/到期/本机 DNS 失效）或地址写错，
+// 而原始信息只有一句 getaddrinfo ENOTFOUND，对普通用户毫无指导意义。
+function netError(e, host) {
+  const msg = (e && e.message) ? e.message : String(e);
+  if (/ENOTFOUND|EAI_AGAIN|EAI_NODATA|EAI_FAIL|getaddrinfo/i.test(msg)) {
+    return new Error('域名解析失败：无法解析 ' + host +
+      '。请确认服务器地址没写错、域名没过期；若其他网站也打不开，是本机网络/DNS 问题（可换 DNS 或用 IP 地址）。');
+  }
+  if (/ECONNREFUSED/i.test(msg)) {
+    return new Error('连接被拒绝：' + host + ' 上没有可用的 WebDAV 服务（检查地址与端口，或服务是否启动）。');
+  }
+  if (/ETIMEDOUT|timeout|请求超时/i.test(msg)) {
+    return new Error('连接超时：' + host + ' 长时间无响应（网络不通或服务器离线）。');
+  }
+  if (/CERT|self.signed|SSL|TLS|ERR_TLS/i.test(msg)) {
+    return new Error('TLS/证书错误：' + msg.slice(0, 140) + '（自签名证书需改用 https 可信任的地址）。');
+  }
+  return new Error('网络错误：' + msg);
+}
+
 class WebDAV {
   // base 例：https://dav.jianguoyun.com/dav/pagevault
   constructor(base) {
@@ -35,6 +57,8 @@ class WebDAV {
     if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('仅支持 http/https 地址');
     this.client = u.protocol === 'https:' ? https : http;
     this.origin = u.origin;
+    this.host = u.host;
+    this.hostname = u.hostname;
     this.basePath = u.pathname.replace(/\/+$/, '');
   }
 
@@ -55,17 +79,56 @@ class WebDAV {
   // 发一个完整 URL 路径的请求（urlPath 必须以 / 开头或为空串）。
   // _mkcolChain 需要逐级创建 basePath 的前缀目录，那些路径不在 basePath 之下，
   // 不能走 req() 的拼接，必须用 _request 直接发。
-  _request(method, urlPath, opts) {
+  //
+  // 解析与连接分离：先用 dnsx 拿全部候选地址（系统 DNS 失败会自动走 DoH，
+  // 且 A/AAAA 都查），再逐个地址尝试连接。这样两种常见故障都能自愈：
+  //   - 本机 DNS 被 VPN/加速器弄挂 → DoH 兜底
+  //   - 域名只有 IPv6 记录 / IPv6 不通 → IPv4 优先，失败再试 IPv6（或反之）
+  async _request(method, urlPath, opts) {
     opts = opts || {};
-    const self = this;
     const headers = {
-      Authorization: self.authHeader || '',
+      Authorization: this.authHeader || '',
       Depth: opts.depth || '0'
     };
-    if (opts.contentType) headers['Content-Type'] = opts.contentType; // undefined 会让 Node 抛错
+    if (opts.contentType) headers['Content-Type'] = opts.contentType;
     Object.assign(headers, opts.headers || {});
+
+    const { addrs, source } = await dnsx.resolveHost(this.hostname);
+    if (!addrs.length) {
+      throw netError(new Error('getaddrinfo ENOTFOUND ' + this.hostname), this.host);
+    }
+    this.lastDnsSource = source;
+
+    let lastErr = null;
+    for (const a of addrs) {
+      try {
+        return await this._requestOnce(method, urlPath, opts, headers, a);
+      } catch (e) {
+        lastErr = e;
+        // 只对"连不上这个地址"重试；HTTP 协议层错误抛出去，不换地址瞎试
+        if (!/ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|EADDRNOTAVAIL|请求超时|socket hang up|ECONNRESET/i.test(e && e.message || '')) {
+          throw e;
+        }
+      }
+    }
+    // 全部地址都失败：IPv6-only 域名却在这台机器上连不通，是最常见的一类
+    const onlyV6 = addrs.every(a => a.family === 6);
+    const e = netError(lastErr, this.host);
+    if (onlyV6) {
+      e.message += '（该域名只有 IPv6 地址，当前网络可能不支持 IPv6；建议在域名里补一条 A 记录）';
+    }
+    throw e;
+  }
+
+  _requestOnce(method, urlPath, opts, headers, addr) {
+    const self = this;
     return new Promise((resolve, reject) => {
-      const r = self.client.request(self.origin + (urlPath || ''), { method, headers }, (res) => {
+      const reqOpts = {
+        method,
+        headers,
+        lookup: dnsx.pinnedLookup(addr.address, addr.family)
+      };
+      const r = self.client.request(self.origin + (urlPath || ''), reqOpts, (res) => {
         const chunks = [];
         res.on('data', c => chunks.push(c));
         res.on('end', () => resolve({
@@ -74,7 +137,7 @@ class WebDAV {
           body: Buffer.concat(chunks)
         }));
       });
-      r.on('error', e => reject(new Error('网络错误：' + (e && e.message ? e.message : e))));
+      r.on('error', e => reject(new Error((e && e.message) ? e.message : String(e))));
       r.setTimeout(TIMEOUT, () => r.destroy(new Error('请求超时（' + TIMEOUT / 1000 + 's）')));
       if (opts.body) r.write(opts.body);
       r.end();

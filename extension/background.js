@@ -5,9 +5,11 @@
 // 1) 用扩展的 host_permissions 跨域抓取页面里的远程图片，转成 data URL 回传 popup 内联。
 //    为什么需要它：SingleFile 在页面上下文里跑，受同源策略限制，抓不了跨域图片（CORS），
 //    会把图片留成远程地址——离线打开就是裂图。扩展上下文带 host 权限，fetch 不受 CORS 限制。
-// 2) 心跳：每分钟 ping 一次同步服务端，让阅读器状态栏显示"扩展已连接"。
+// 2) 心跳：定时 ping 同步服务端，让阅读器状态栏显示"扩展已连接"。
 
 const HEARTBEAT_ALARM = 'pv-heartbeat';
+const EXT_VERSION = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || '';
+let lastPingAt = 0;
 
 function serverBase() {
   // 与 popup 保持同一默认值；用户在 popup 里改过地址时以 storage 为准
@@ -18,19 +20,40 @@ function serverBase() {
   });
 }
 
-async function ping() {
+async function ping(force) {
+  // 节流：10 秒内不重复发（标签页频繁切换时避免刷爆）
+  const now = Date.now();
+  if (!force && now - lastPingAt < 10000) return;
+  lastPingAt = now;
   const base = await serverBase();
   try {
-    await fetch(base.replace(/\/$/, '') + '/api/ping', { method: 'POST' });
-  } catch { /* 服务端没开就静默，下次 alarm 再试 */ }
+    await fetch(base.replace(/\/$/, '') + '/api/ping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ v: EXT_VERSION })
+    });
+  } catch {
+    lastPingAt = 0; // 服务端没开：下个事件/alarm 立即重试，不用等节流窗口
+  }
 }
 
-// 安装/浏览器启动时立刻 ping 一次，状态栏马上显示已连接
-chrome.runtime.onInstalled.addListener(() => { ping(); });
-chrome.runtime.onStartup.addListener(() => { ping(); });
-// 每分钟保活（MV3 service worker 会被休眠，alarm 能唤醒它）
-chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === HEARTBEAT_ALARM) ping(); });
+// 安装/浏览器启动时立刻 ping 一次
+chrome.runtime.onInstalled.addListener(() => { ping(true); });
+chrome.runtime.onStartup.addListener(() => { ping(true); });
+// 保活：MV3 service worker 会被休眠，alarm 能唤醒它。
+// 30 秒一次（Chrome 120+ 支持，旧版自动按 1 分钟），桌面端重启后最多半分钟自动重连。
+try { chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: 0.5 }); }
+catch { chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: 1 }); }
+chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === HEARTBEAT_ALARM) ping(true); });
+
+// 快速补连：浏览器有任何活动（切标签、开新页、页面加载完）都顺手 ping 一次
+try {
+  if (chrome.tabs && chrome.tabs.onActivated) chrome.tabs.onActivated.addListener(() => { ping(false); });
+  if (chrome.tabs && chrome.tabs.onUpdated) {
+    chrome.tabs.onUpdated.addListener((id, info) => { if (info && info.status === 'complete') ping(false); });
+  }
+  if (chrome.windows && chrome.windows.onFocusChanged) chrome.windows.onFocusChanged.addListener(() => { ping(false); });
+} catch { /* 权限不足时忽略，alarm 仍会兜底 */ }
 
 function blobToDataURL(blob) {
   return new Promise((resolve, reject) => {
