@@ -606,10 +606,22 @@ const server = http.createServer((req, res) => {
     try {
       for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
         for (const a of addrs || []) {
-          if (a.family === 'IPv4' && !a.internal) lan.push({ name, address: a.address });
+          if (a.family !== 'IPv4' || a.internal) continue;
+          // 容器里的 eth0 是 Docker 内网段（172.16-31），别的机器根本连不上，
+          // 显示出来只会误导用户去复制一个假地址
+          if (PLATFORM === 'docker' && /^172\.(1[6-9]|2\d|3[01])\./.test(a.address)) continue;
+          lan.push({ name, address: a.address, url: 'http://' + a.address + ':' + PORT });
         }
       }
     } catch { /* 忽略 */ }
+    // Docker / 反代后面，宿主地址没法自己推断：用 PAGEVAULT_PUBLIC_ADDR 显式给
+    // （可写多个，逗号分隔，允许纯 IP、host:port 或完整 URL）
+    for (const raw of String(process.env.PAGEVAULT_PUBLIC_ADDR || '').split(',')) {
+      const v = raw.trim();
+      if (!v) continue;
+      const url = /^https?:\/\//i.test(v) ? v.replace(/\/+$/, '') : 'http://' + v + (v.includes(':') ? '' : ':' + PORT);
+      if (!lan.some(a => a.url === url)) lan.unshift({ name: 'host', address: url.replace(/^https?:\/\//i, ''), url });
+    }
     send(res, 200, JSON.stringify({ ok: true, token: s.token, enabled: s.enabled !== false, port: PORT, addresses: lan },
       { 'Content-Type': 'application/json; charset=utf-8' }));
     return;
