@@ -36,14 +36,34 @@ pagevault/
 │   ├── popup.html / popup.js
 │   ├── lib/single-file.js # SingleFile 官方 standalone 库（高保真捕获，自包含）
 │   └── README.md
-├── desktop/             # Mac 桌面端（Electron，真正的 .app）
+├── desktop/             # 桌面端（Electron；macOS + Windows 同一工程）
 │   ├── main.js           # 启动内置同步服务端 + 原生窗口
-│   ├── build-app.sh      # 组装并 ad-hoc 签名 → dist/网页收藏.app
-│   ├── make_icon.py      # 生成 AppIcon.icns（正式图标）
-│   └── dist/网页收藏.app
+│   ├── build-app.sh      # macOS：组装并 ad-hoc 签名 → dist/网页收藏.app
+│   ├── build-win.sh      # Windows：跨平台组装 → dist/网页收藏-win32-x64(+zip)
+│   ├── make_icon.py      # 生成 AppIcon.icns（macOS 图标）
+│   ├── make_icon_ico.py  # 生成 AppIcon.ico（Windows 图标）
+│   └── dist/
 ├── load-extension.sh     # 扩展加载辅助（复制路径 + 打开扩展管理页）
 └── run-mac.sh            # 一键在 Mac 上启动（纯服务端模式）
 ```
+
+## Windows 端
+
+在 Mac 上一键跨平台构建（纯文件组装，无需 wine）：
+
+```bash
+cd desktop && bash build-win.sh
+```
+
+产物 `desktop/dist/网页收藏-win32-x64.zip`（约 100MB），拷到 Windows 解压即用：
+
+1. 解压到任意目录（如 `D:\网页收藏`）
+2. 双击 `网页收藏.exe`。未买代码签名，SmartScreen 会提示"未知发布者"→「更多信息」→「仍要运行」
+3. 数据存 `%APPDATA%\pagevault-desktop`，端口 8731，与 Mac 版协议完全一致
+4. Chrome/Edge 加载 `pagevault/extension` 扩展，两端可往同一个库保存/查看
+
+> Windows 与 Mac 数据互通的正确姿势：任一端开服务端，另一端把"服务地址"指向它
+> （扩展 popup 里可改服务地址，如 `http://192.168.x.x:8731`），即实现真正的双端同步。
 
 ## 在 Mac 上运行（MVP）
 

@@ -5,6 +5,7 @@ node_modules/
 desktop/.electron-cache/
 desktop/.electron-tmp/
 desktop/.electron-dist/
+desktop/.win-build/
 desktop/dist/
 
 # 本地运行数据
