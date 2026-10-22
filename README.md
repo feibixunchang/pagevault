@@ -39,7 +39,7 @@ pagevault/
 ├── desktop/             # 桌面端（Electron；macOS + Windows 同一工程）
 │   ├── main.js           # 启动内置同步服务端 + 原生窗口
 │   ├── build-app.sh      # macOS：组装并 ad-hoc 签名 → dist/网页收藏.app
-│   ├── build-win.sh      # Windows：跨平台组装 → dist/网页收藏-win32-x64(+zip)
+│   ├── build-win.sh      # Windows：跨平台组装 → dist/WebVault-win32-x64(+zip)
 │   ├── make_icon.py      # 生成 AppIcon.icns（macOS 图标）
 │   ├── make_icon_ico.py  # 生成 AppIcon.ico（Windows 图标）
 │   └── dist/
@@ -55,12 +55,17 @@ pagevault/
 cd desktop && bash build-win.sh
 ```
 
-产物 `desktop/dist/网页收藏-win32-x64.zip`（约 100MB），拷到 Windows 解压即用：
+产物 `desktop/dist/WebVault-win32-x64.zip`（约 100MB，包内纯英文文件名，避免解压乱码），
+拷到 Windows 解压即用（包内 `README.txt` 有完整步骤）：
 
-1. 解压到任意目录（如 `D:\网页收藏`）
-2. 双击 `网页收藏.exe`。未买代码签名，SmartScreen 会提示"未知发布者"→「更多信息」→「仍要运行」
+1. 解压到任意目录（建议纯英文路径，如 `D:\WebVault`）
+2. 双击 `WebVault.exe`。未买代码签名，SmartScreen 会提示"未知发布者"→「更多信息」→「仍要运行」
 3. 数据存 `%APPDATA%\pagevault-desktop`，端口 8731，与 Mac 版协议完全一致
 4. Chrome/Edge 加载 `pagevault/extension` 扩展，两端可往同一个库保存/查看
+
+**双击打不开？** 按 Release 说明里的排查清单：SmartScreen「更多信息→仍要运行」→
+右键 exe 属性「解除锁定」→ 临时退出杀毒软件 → 看 `%APPDATA%\pagevault-desktop\desktop.log`
+→ PowerShell 里 `.\WebVault.exe` 直跑看报错。启动失败时窗口会显示带日志路径的错误页，不会闪退。
 
 > Windows 与 Mac 数据互通的正确姿势：任一端开服务端，另一端把"服务地址"指向它
 > （扩展 popup 里可改服务地址，如 `http://192.168.x.x:8731`），即实现真正的双端同步。
