@@ -37,11 +37,18 @@ mkdir -p "$OUT/resources/app"
 # （default_app.asar 尤甚，macOS 构建踩过同样的坑）。
 rsync -a --exclude='electron.exe' "$UNPACK/" "$OUT/"
 cp "$UNPACK/electron.exe" "$OUT/WebVault.exe"
+# 把 AppIcon.ico 嵌进 exe 资源（替换 Electron 默认图标，与 Mac 版完全一致；
+# exe 旁边放 .ico 文件对资源管理器无效，必须嵌进 PE 资源区）
+if [ -f "$DESKTOP/AppIcon.ico" ]; then
+  node "$DESKTOP/set-win-icon.mjs" "$OUT/WebVault.exe" "$DESKTOP/AppIcon.ico"
+fi
 
 # 3. Our app entry + bundled sync server + icon
 cp "$DESKTOP/main.js" "$OUT/resources/app/main.js"
 cp "$DESKTOP/package.json" "$OUT/resources/app/package.json"
 rsync -a --delete --exclude=data "$SERVER/" "$OUT/resources/server/"
+# 浏览器扩展随包分发（菜单"安装浏览器扩展…"定位到这里）
+rsync -a --delete --exclude='.DS_Store' "$ROOT/extension/" "$OUT/extension/"
 [ -f "$DESKTOP/AppIcon.ico" ] && cp "$DESKTOP/AppIcon.ico" "$OUT/AppIcon.ico"
 
 # 3b. 使用说明（带 UTF-8 BOM，老版本记事本也能正确显示中文）
@@ -70,13 +77,21 @@ cat >> "$OUT/README.txt" <<'EOF'
   - 窗口显示"本地服务启动失败"时，日志里有具体原因。
   - 服务意外退出会自动重启（最多 3 次）。
 
-三、保存网页
+三、保存网页（浏览器扩展已随安装包分发）
+  本目录下的 extension 文件夹就是浏览器扩展，安装一次永久使用：
   - Chrome/Edge 打开 chrome://extensions -> 打开"开发者模式"
-    -> "加载已解压的扩展程序" -> 选择 pagevault/extension 文件夹。
-  - 在任意网页点扩展图标 -> "保存此页"。
-  - 阅读器地址：http://127.0.0.1:8731/ （数据只存本机，不上传任何服务器）
+    -> "加载已解压的扩展程序" -> 选择本目录下的 extension 文件夹。
+  - 也可以在阅读器里点底部状态栏的"安装扩展"，按弹窗步骤操作。
+  - 安装后底部状态栏显示"扩展已连接"，在任意网页点扩展图标即可保存整页。
 
-四、数据与端口
+四、多端同步（账号）
+  - 阅读器右下角"设置"图标 -> 账号与同步：填入你自己的 WebDAV
+    （坚果云 / Nextcloud / 群晖等），保存后自动同步。
+  - 多台电脑登录同一个 WebDAV 账号，收藏即实时互相同步（默认 30 秒一轮，
+    本地保存/删除会立即推送）。
+  - 设置里还可导出/导入整库 zip 备份。
+
+五、数据与端口
   - 数据目录：%APPDATA%\pagevault-desktop（删掉该文件夹=清空收藏）
   - 端口：8731（被占用时自动复用已有服务）
 EOF

@@ -103,6 +103,62 @@
   #offline button { border:1px solid var(--danger-border); background:var(--btn-bg); color:var(--btn-text);
     border-radius:7px; padding:5px 12px; font-size:12px; cursor:pointer; white-space:nowrap; }
   #offline button:hover { color:var(--danger); border-color:var(--danger); }
+
+  /* 底部状态栏：本地服务 / 扩展连接 / 同步状态 */
+  #statusbar { display:flex; align-items:center; gap:18px; padding:5px 16px; background:var(--panel);
+    border-top:1px solid var(--border); font-size:12px; color:var(--muted); flex-wrap:wrap; }
+  #statusbar .sb-item { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  #statusbar .dot { width:8px; height:8px; border-radius:50%; background:var(--star-off); flex:none; }
+  #statusbar .dot.ok { background:#2ea043; }
+  #statusbar .dot.warn { background:#d29922; }
+  #statusbar .dot.bad { background:var(--danger); }
+  #statusbar button.link { border:0; background:transparent; color:var(--accent); font-size:12px; cursor:pointer; padding:0; text-decoration:underline; }
+  #statusbar .sb-right { margin-left:auto; display:flex; align-items:center; gap:14px; }
+  #statusbar .sb-ver { opacity:.65; }
+
+  /* 首次使用引导条：还没装浏览器扩展时显示 */
+  #extBanner { display:none; align-items:center; gap:12px; padding:9px 16px; background:var(--accent-bg);
+    border-bottom:1px solid var(--border); font-size:13px; color:var(--text); }
+  #extBanner.show { display:flex; }
+  #extBanner .grow { flex:1; }
+  #extBanner button { border:1px solid var(--accent); background:var(--panel); color:var(--accent);
+    border-radius:7px; padding:4px 12px; font-size:12px; cursor:pointer; white-space:nowrap; }
+  #extBanner button.ghost { border-color:var(--border); color:var(--muted); }
+
+  /* 安装扩展指引弹窗 */
+  #installModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:200;
+    align-items:center; justify-content:center; }
+  #installModal.open { display:flex; }
+  #installModal .card { background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    width:min(560px,92vw); max-height:86vh; overflow:auto; padding:22px 26px; box-shadow:0 14px 50px rgba(0,0,0,.3); }
+  #installModal h2 { font-size:15px; margin:0 0 4px; }
+  #installModal .sub { font-size:12px; color:var(--muted); margin:0 0 14px; }
+  #installModal ol { margin:0 0 14px; padding-left:22px; font-size:13px; line-height:2; }
+  #installModal .pathRow { display:flex; gap:8px; align-items:center; background:var(--bg);
+    border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-size:12px; margin-bottom:12px; }
+  #installModal .pathRow span { flex:1; word-break:break-all; color:var(--muted); }
+  #installModal .pathRow button { border:1px solid var(--border); background:var(--panel); color:var(--text);
+    border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; white-space:nowrap; }
+  #installModal .actions { display:flex; gap:10px; justify-content:flex-end; }
+  #installModal .actions button { border:1px solid var(--border); background:var(--btn-bg); color:var(--btn-text);
+    border-radius:8px; padding:7px 16px; font-size:13px; cursor:pointer; }
+  #installModal .actions button.primary { border-color:var(--accent); color:var(--accent); background:var(--accent-bg); }
+
+  /* 设置面板（内容变多：账号同步 + 备份） */
+  #settingsPanel { width:340px; max-height:calc(100vh - 72px); overflow:auto; }
+  .panelTip { font-size:11px; color:var(--muted); line-height:1.65; margin:0 0 10px; }
+  .field { display:flex; flex-direction:column; gap:4px; margin-bottom:9px; }
+  .field label { font-size:11px; color:var(--muted); }
+  .field input { padding:6px 9px; border:1px solid var(--border); border-radius:7px; font-size:12px;
+    outline:none; background:var(--bg); color:var(--text); width:100%; }
+  .field input:focus { border-color:var(--accent); }
+  .btnrow { display:flex; gap:8px; margin:4px 0 8px; }
+  .btnrow button { flex:1; padding:6px 0; border:1px solid var(--border); border-radius:7px;
+    background:var(--btn-bg); color:var(--btn-text); font-size:12px; cursor:pointer; }
+  .btnrow button:hover { border-color:var(--accent); color:var(--accent); }
+  #syncStatus { font-size:11px; color:var(--muted); line-height:1.6; min-height:16px; word-break:break-all; }
+  #syncStatus.err { color:var(--danger); }
+  #syncStatus.ok { color:#2ea043; }
 </style>
 </head>
 <body>
@@ -115,6 +171,11 @@
     <button id="refresh" title="重新加载列表">↻ 刷新</button>
     <button id="settingsBtn" title="设置">⚙</button>
   </header>
+  <div id="extBanner">
+    <span class="grow" data-i18n="bannerText">还没有安装浏览器扩展——安装后就能在任意网页一键整页保存。</span>
+    <button id="bannerInstall" data-i18n="viewSteps">查看安装步骤</button>
+    <button id="bannerClose" class="ghost" data-i18n="bannerClose">知道了</button>
+  </div>
   <div id="settingsPanel">
     <h2 data-i18n="theme">外观</h2>
     <div class="seg" id="themeSeg">
@@ -128,6 +189,37 @@
       <button data-v="zh">中文</button>
       <button data-v="en">English</button>
     </div>
+    <h2 data-i18n="accountSync">账号与同步</h2>
+    <p class="panelTip" data-i18n="syncTip">登录同一个 WebDAV 账号（坚果云 / Nextcloud / 群晖等），多端即可自动同步收藏，数据只存在你自己的网盘。</p>
+    <div class="field"><label data-i18n="davUrl">WebDAV 服务器地址</label>
+      <input id="syncUrl" placeholder="https://dav.jianguoyun.com/dav/" spellcheck="false" /></div>
+    <div class="field"><label data-i18n="davUser">账号</label>
+      <input id="syncUser" autocomplete="username" spellcheck="false" /></div>
+    <div class="field"><label data-i18n="davPass">密码 / 授权码</label>
+      <input id="syncPass" type="password" autocomplete="current-password" /></div>
+    <div class="field"><label data-i18n="syncDir">同步目录</label>
+      <input id="syncDir" placeholder="pagevault" spellcheck="false" /></div>
+    <div class="field"><label data-i18n="syncInterval">同步间隔</label>
+      <div class="seg" id="syncIntervalSeg">
+        <button data-v="0" data-i18n="syncOff">关闭</button>
+        <button data-v="10" data-i18n="sync10s">10 秒</button>
+        <button data-v="30" data-i18n="sync30s">30 秒</button>
+        <button data-v="60" data-i18n="sync1m">1 分钟</button>
+      </div>
+    </div>
+    <div class="btnrow">
+      <button id="syncTestBtn" data-i18n="testConn">测试连接</button>
+      <button id="syncSaveBtn" data-i18n="saveSync">保存</button>
+      <button id="syncNowBtn" data-i18n="syncNow">立即同步</button>
+    </div>
+    <div id="syncStatus"></div>
+    <h2 data-i18n="backup">备份</h2>
+    <p class="panelTip" data-i18n="backupTip">导出整库为 zip 备份；换电脑、重装系统后可以导入恢复。</p>
+    <div class="btnrow">
+      <button id="exportBtn" data-i18n="exportBackup">导出备份 (.zip)</button>
+      <button id="importBtn" data-i18n="importBackup">导入备份</button>
+    </div>
+    <input type="file" id="importFile" accept=".zip,application/zip" style="display:none" />
   </div>
   <main>
     <div id="list"></div>
@@ -136,6 +228,35 @@
       <iframe id="frame" sandbox="allow-same-origin allow-scripts"></iframe>
     </div>
   </main>
+
+  <footer id="statusbar">
+    <span class="sb-item"><i class="dot" id="sbSvcDot"></i><span id="sbSvc"></span></span>
+    <span class="sb-item"><i class="dot" id="sbExtDot"></i><span id="sbExtText"></span><button class="link" id="sbInstall" style="display:none" data-i18n="installExt">安装扩展</button></span>
+    <span class="sb-right">
+      <span class="sb-item"><i class="dot" id="sbSyncDot"></i><span id="sbSyncText"></span></span>
+      <span id="sbCount"></span>
+      <span class="sb-ver" id="sbVer"></span>
+    </span>
+  </footer>
+
+  <div id="installModal">
+    <div class="card">
+      <h2 data-i18n="installTitle">安装浏览器扩展</h2>
+      <p class="sub" data-i18n="installSub">按下面五步操作，大约 1 分钟即可完成（Chrome / Edge 通用）。</p>
+      <ol>
+        <li data-i18n="step1">在浏览器地址栏输入 chrome://extensions 并打开</li>
+        <li data-i18n="step2">打开右上角的「开发者模式」</li>
+        <li data-i18n="step3">点击「加载已解压的扩展程序」</li>
+        <li data-i18n="step4">选择下面这个 extension 文件夹</li>
+        <li data-i18n="step5">完成！底部状态栏显示「扩展已连接」后，在任意网页点扩展图标即可保存整页</li>
+      </ol>
+      <div class="pathRow"><span id="extPath"></span><button id="copyPathBtn" data-i18n="copyPath">复制路径</button></div>
+      <div class="actions">
+        <button id="openExtPageBtn" data-i18n="openExtPage">打开扩展管理页</button>
+        <button id="installDoneBtn" class="primary" data-i18n="done">完成</button>
+      </div>
+    </div>
+  </div>
 
   <div id="offline"><div class="txt"><b data-i18n="offline">连不上本地服务</b><span data-i18n="offlineHint"></span></div><button id="retryBtn" data-i18n="retry">重试</button></div>
 
@@ -157,7 +278,41 @@
       notArticle: '这个页面暂时抽不出正文（可能不是文章型页面）', readFail: '阅读模式失败：',
       settingsTitle: '设置', theme: '外观', lang: '语言', system: '跟随系统', light: '浅色', dark: '深色',
       from2: '来源', loading: '加载中…', saved: '已保存', exportFail: '导出失败',
-      offline: '连不上本地服务（127.0.0.1:8731）', offlineHint: '请确认「网页收藏」客户端正在运行，然后再试一次。', retry: '重试'
+      offline: '连不上本地服务（127.0.0.1:8731）', offlineHint: '请确认「网页收藏」客户端正在运行，然后再试一次。', retry: '重试',
+      // 状态栏 / 扩展连接
+      sbServiceRun: '本地服务运行中 · 127.0.0.1:8731', sbServiceDown: '本地服务未连接',
+      sbExtOn: '扩展已连接', sbExtOff: '扩展未连接', sbExtNever: '尚未安装扩展',
+      installExt: '安装扩展', sbCount: (n, s) => `共 ${n} 个页面 · ★ ${s}`,
+      // 首次引导
+      bannerText: '还没有安装浏览器扩展——安装后就能在任意网页一键整页保存。',
+      viewSteps: '查看安装步骤', bannerClose: '知道了',
+      // 安装弹窗
+      installTitle: '安装浏览器扩展',
+      installSub: '按下面五步操作，大约 1 分钟即可完成（Chrome / Edge 通用）。',
+      step1: '在浏览器地址栏输入 chrome://extensions 并打开',
+      step2: '打开右上角的「开发者模式」',
+      step3: '点击「加载已解压的扩展程序」',
+      step4: '选择下面这个 extension 文件夹',
+      step5: '完成！底部状态栏显示「扩展已连接」后，在任意网页点扩展图标即可保存整页',
+      copyPath: '复制路径', copied: '已复制 ✓', openExtPage: '打开扩展管理页', done: '完成',
+      extPathNone: '（未找到扩展目录，请从安装包里的 extension 文件夹加载）',
+      // 账号与同步
+      accountSync: '账号与同步',
+      syncTip: '登录同一个 WebDAV 账号（坚果云 / Nextcloud / 群晖等），多端即可自动同步收藏，数据只存在你自己的网盘。',
+      davUrl: 'WebDAV 服务器地址', davUser: '账号', davPass: '密码 / 授权码',
+      syncDir: '同步目录', syncInterval: '同步间隔',
+      syncOff: '关闭', sync10s: '10 秒', sync30s: '30 秒', sync1m: '1 分钟',
+      testConn: '测试连接', saveSync: '保存', syncNow: '立即同步',
+      syncTesting: '正在测试连接…', syncTestingOk: '连接成功，可以保存了', syncSaveOk: '已保存，正在同步…',
+      syncDisabled: '同步未开启', syncing: '同步中…', syncNever: '尚未同步',
+      syncedAt: (hm) => '已同步 ' + hm, syncErr: (e) => '同步失败：' + e,
+      syncNeedCfg: '请先填写服务器地址和账号',
+      syncResult: (s) => `同步完成：拉取 ${s.pulled} · 推送 ${s.pushed} · 删除 ${s.deleted}`,
+      // 备份
+      backup: '备份', backupTip: '导出整库为 zip 备份；换电脑、重装系统后可以导入恢复。',
+      exportBackup: '导出备份 (.zip)', importBackup: '导入备份',
+      exportStarted: '备份下载已开始', importOk: (n) => `已导入 ${n} 个新页面`, importNone: '没有新页面可导入',
+      importFail: (e) => '导入失败：' + e
     },
     en: {
       appName: 'Web Vault', count: n => n + (n === 1 ? ' page' : ' pages'), starred: '☆ Favorites', starredOn: '★ Favorited',
@@ -172,7 +327,41 @@
       settingsTitle: 'Settings', theme: 'Appearance', lang: 'Language', system: 'System', light: 'Light', dark: 'Dark',
       from2: 'Source', loading: 'Loading…', saved: 'Saved', exportFail: 'Export failed',
       offline: 'Cannot reach the local service (127.0.0.1:8731)',
-      offlineHint: 'Make sure the Web Vault desktop app is running, then try again.', retry: 'Retry'
+      offlineHint: 'Make sure the Web Vault desktop app is running, then try again.', retry: 'Retry',
+      // Status bar / extension link
+      sbServiceRun: 'Local service running · 127.0.0.1:8731', sbServiceDown: 'Local service offline',
+      sbExtOn: 'Extension connected', sbExtOff: 'Extension offline', sbExtNever: 'Extension not installed',
+      installExt: 'Install extension', sbCount: (n, s) => `${n} pages · ★ ${s} starred`,
+      // First-run banner
+      bannerText: 'The browser extension is not installed yet — install it to save any page in one click.',
+      viewSteps: 'Show install steps', bannerClose: 'Got it',
+      // Install modal
+      installTitle: 'Install the browser extension',
+      installSub: 'Five steps, about a minute (works for Chrome and Edge).',
+      step1: 'Type chrome://extensions in the address bar and open it',
+      step2: 'Turn on "Developer mode" (top right)',
+      step3: 'Click "Load unpacked"',
+      step4: 'Select the extension folder shown below',
+      step5: 'Done! Once the status bar shows "Extension connected", click the extension icon on any page to save it',
+      copyPath: 'Copy path', copied: 'Copied ✓', openExtPage: 'Open extensions page', done: 'Done',
+      extPathNone: '(Extension folder not found — load it from the extension/ folder in the download)',
+      // Account & sync
+      accountSync: 'Account & Sync',
+      syncTip: 'Sign in with the same WebDAV account (Jianguoyun / Nextcloud / Synology…) on every device — pages sync automatically and stay in your own cloud.',
+      davUrl: 'WebDAV server URL', davUser: 'Account', davPass: 'Password / app token',
+      syncDir: 'Sync folder', syncInterval: 'Sync interval',
+      syncOff: 'Off', sync10s: '10 s', sync30s: '30 s', sync1m: '1 min',
+      testConn: 'Test connection', saveSync: 'Save', syncNow: 'Sync now',
+      syncTesting: 'Testing connection…', syncTestingOk: 'Connected — you can save now', syncSaveOk: 'Saved — syncing…',
+      syncDisabled: 'Sync off', syncing: 'Syncing…', syncNever: 'Never synced',
+      syncedAt: (hm) => 'Synced ' + hm, syncErr: (e) => 'Sync failed: ' + e,
+      syncNeedCfg: 'Fill in the server URL and account first',
+      syncResult: (s) => `Sync done: pulled ${s.pulled} · pushed ${s.pushed} · deleted ${s.deleted}`,
+      // Backup
+      backup: 'Backup', backupTip: 'Export the whole library as a zip; import it after moving to a new computer.',
+      exportBackup: 'Export backup (.zip)', importBackup: 'Import backup',
+      exportStarted: 'Backup download started', importOk: (n) => `Imported ${n} new page(s)`, importNone: 'Nothing new to import',
+      importFail: (e) => 'Import failed: ' + e
     }
   };
 
@@ -228,6 +417,7 @@
     document.querySelectorAll('#langSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === prefs.lang));
     countEl.textContent = pages.length ? t('count', pages.length) : '';
     render(searchEl.value);
+    renderStatus();
     if (currentId) {
       const p = pages.find(x => x.id === currentId);
       if (p) openPage(p);
@@ -255,6 +445,7 @@
       r = await fetch('/api/pages');
       pages = await r.json();
       hideOffline();
+      refreshStatus();
     } catch (e) {
       // 本地服务没起来（客户端没开 / 端口被占后挂掉）：显示断连条，不清空已有列表之外的任何状态
       showOffline();
@@ -465,6 +656,7 @@
       try {
         const d = JSON.parse(ev.data);
         if (d.type === 'deleted') { applyDeleted(d.id); return; }
+        if (d.type === 'synced' || d.type === 'imported') { refreshStatus(); return; }
         if (d.type === 'starred') {
           const p = pages.find(x => x.id === d.id);
           if (p) p.starred = !!d.starred;
@@ -484,6 +676,189 @@
     };
     es.onerror = () => { /* EventSource 自带断线重连 */ };
   }
+
+  // ---------- 底部状态栏：本地服务 / 扩展连接 / 同步状态 ----------
+  let lastStatus = null;
+  const sbSvcDot = document.getElementById('sbSvcDot');
+  const sbSvc = document.getElementById('sbSvc');
+  const sbExtDot = document.getElementById('sbExtDot');
+  const sbExtText = document.getElementById('sbExtText');
+  const sbInstall = document.getElementById('sbInstall');
+  const sbSyncDot = document.getElementById('sbSyncDot');
+  const sbSyncText = document.getElementById('sbSyncText');
+  const sbCount = document.getElementById('sbCount');
+  const sbVer = document.getElementById('sbVer');
+  const extBanner = document.getElementById('extBanner');
+  const BANNER_KEY = 'pv-ext-banner-dismissed';
+
+  function fmtHM(ts) {
+    const d = new Date(ts || 0);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  function bannerDismissed() {
+    try { return localStorage.getItem(BANNER_KEY) === '1'; } catch { return false; }
+  }
+  async function refreshStatus() {
+    let st = null;
+    try { const r = await fetch('/api/status'); st = await r.json(); } catch { st = null; }
+    lastStatus = st;
+    renderStatus();
+  }
+  function renderStatus() {
+    const st = lastStatus;
+    // 本地服务
+    if (st) { sbSvcDot.className = 'dot ok'; sbSvc.textContent = t('sbServiceRun'); }
+    else { sbSvcDot.className = 'dot bad'; sbSvc.textContent = t('sbServiceDown'); }
+    // 扩展连接（心跳判定：2 分钟内有活动即在线）
+    const ext = st && st.extension;
+    if (ext && ext.online) {
+      sbExtDot.className = 'dot ok';
+      sbExtText.textContent = t('sbExtOn');
+      sbInstall.style.display = 'none';
+    } else {
+      sbExtDot.className = ext && ext.lastSeen ? 'dot warn' : 'dot';
+      sbExtText.textContent = ext && ext.lastSeen ? t('sbExtOff') : t('sbExtNever');
+      sbInstall.style.display = '';
+    }
+    // 同步状态
+    const s = st && st.sync;
+    if (!s || !s.configured) { sbSyncDot.className = 'dot'; sbSyncText.textContent = t('syncDisabled'); }
+    else if (s.status === 'syncing') { sbSyncDot.className = 'dot warn'; sbSyncText.textContent = t('syncing'); }
+    else if (s.status === 'error') { sbSyncDot.className = 'dot bad'; sbSyncText.textContent = t('syncErr', s.lastError || 'unknown'); }
+    else if (s.lastSyncAt) { sbSyncDot.className = 'dot ok'; sbSyncText.textContent = t('syncedAt', fmtHM(s.lastSyncAt)); }
+    else { sbSyncDot.className = 'dot'; sbSyncText.textContent = t('syncNever'); }
+    // 右侧：计数 + 版本
+    sbCount.textContent = st && st.counts ? t('sbCount', st.counts.total, st.counts.starred) : '';
+    sbVer.textContent = st ? 'v' + st.version : '';
+    // 首次引导条：扩展从未连接过、且用户没关过
+    extBanner.classList.toggle('show', (!ext || !ext.lastSeen) && !bannerDismissed());
+  }
+  setInterval(refreshStatus, 5000);
+
+  document.getElementById('bannerClose').addEventListener('click', () => {
+    try { localStorage.setItem(BANNER_KEY, '1'); } catch { /* 忽略 */ }
+    extBanner.classList.remove('show');
+  });
+
+  // ---------- 安装扩展指引弹窗 ----------
+  const installModal = document.getElementById('installModal');
+  const extPath = document.getElementById('extPath');
+  function openInstall() {
+    extPath.textContent = (lastStatus && lastStatus.extensionPath) || t('extPathNone');
+    installModal.classList.add('open');
+  }
+  document.getElementById('bannerInstall').addEventListener('click', openInstall);
+  sbInstall.addEventListener('click', openInstall);
+  document.getElementById('installDoneBtn').addEventListener('click', () => installModal.classList.remove('open'));
+  installModal.addEventListener('click', (ev) => { if (ev.target === installModal) installModal.classList.remove('open'); });
+  document.getElementById('copyPathBtn').addEventListener('click', async (ev) => {
+    const btn = ev.target;
+    try {
+      await navigator.clipboard.writeText(extPath.textContent);
+      btn.textContent = t('copied');
+      setTimeout(() => { btn.textContent = t('copyPath'); }, 1500);
+    } catch { /* 剪贴板不可用就手动选择 */ }
+  });
+  document.getElementById('openExtPageBtn').addEventListener('click', () => {
+    // Electron 窗口里会被主进程拦截、转交系统浏览器打开；普通浏览器若被拦，按步骤手动输入即可
+    try { window.open('chrome://extensions/', '_blank'); } catch { /* 忽略 */ }
+  });
+
+  // ---------- 账号与同步（WebDAV：同一账号 = 多端同步） ----------
+  const syncUrl = document.getElementById('syncUrl');
+  const syncUser = document.getElementById('syncUser');
+  const syncPass = document.getElementById('syncPass');
+  const syncDir = document.getElementById('syncDir');
+  const syncStatus = document.getElementById('syncStatus');
+  let pendingInterval = (prefs.sync && prefs.sync.intervalSec) || 0;
+
+  function syncFormValues() {
+    return {
+      url: syncUrl.value.trim(),
+      user: syncUser.value.trim(),
+      pass: syncPass.value,
+      dir: syncDir.value.trim() || 'pagevault',
+      intervalSec: pendingInterval
+    };
+  }
+  function loadSyncForm() {
+    const s = prefs.sync || {};
+    syncUrl.value = s.url || '';
+    syncUser.value = s.user || '';
+    syncPass.value = s.pass || '';
+    syncDir.value = s.dir || '';
+    pendingInterval = s.intervalSec || 0;
+    document.querySelectorAll('#syncIntervalSeg button').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === pendingInterval));
+  }
+  document.getElementById('syncIntervalSeg').addEventListener('click', (ev) => {
+    const v = ev.target.dataset && ev.target.dataset.v;
+    if (v === undefined) return;
+    pendingInterval = Number(v);
+    document.querySelectorAll('#syncIntervalSeg button').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === pendingInterval));
+  });
+  document.getElementById('syncTestBtn').addEventListener('click', async () => {
+    const v = syncFormValues();
+    if (!v.url || !v.user) { syncStatus.textContent = t('syncNeedCfg'); syncStatus.className = 'err'; return; }
+    syncStatus.textContent = t('syncTesting'); syncStatus.className = '';
+    try {
+      const r = await fetch('/api/sync/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
+      const res = await r.json();
+      syncStatus.textContent = res.ok ? t('syncTestingOk') : (res.message || 'HTTP ' + r.status);
+      syncStatus.className = res.ok ? 'ok' : 'err';
+    } catch (e) { syncStatus.textContent = t('syncErr', e && e.message); syncStatus.className = 'err'; }
+  });
+  document.getElementById('syncSaveBtn').addEventListener('click', async () => {
+    const v = syncFormValues();
+    if (!v.url || !v.user) { syncStatus.textContent = t('syncNeedCfg'); syncStatus.className = 'err'; return; }
+    prefs.sync = v;
+    await savePrefs(); // 保存后服务端自动恢复/停止轮询
+    syncStatus.textContent = t('syncSaveOk'); syncStatus.className = 'ok';
+    loadSyncForm();
+    setTimeout(runSync, 300); // 存完立刻同步一轮
+  });
+  document.getElementById('syncNowBtn').addEventListener('click', () => runSync());
+  async function runSync() {
+    const v = syncFormValues();
+    if (!v.url || !v.user) { syncStatus.textContent = t('syncNeedCfg'); syncStatus.className = 'err'; return; }
+    syncStatus.textContent = t('syncing'); syncStatus.className = '';
+    try {
+      const r = await fetch('/api/sync/run', { method: 'POST' });
+      const res = await r.json();
+      if (res.ok) {
+        syncStatus.textContent = t('syncResult', res.stats); syncStatus.className = 'ok';
+        load(); refreshStatus();
+      } else {
+        syncStatus.textContent = t('syncErr', (res.status && res.status.lastError) || 'unknown');
+        syncStatus.className = 'err';
+      }
+    } catch (e) { syncStatus.textContent = t('syncErr', e && e.message); syncStatus.className = 'err'; }
+  }
+
+  // ---------- 备份：整库导出 / 导入 ----------
+  document.getElementById('exportBtn').addEventListener('click', () => {
+    window.location.href = '/api/export.zip';
+    syncStatus.textContent = t('exportStarted'); syncStatus.className = 'ok';
+  });
+  const importFile = document.getElementById('importFile');
+  document.getElementById('importBtn').addEventListener('click', () => importFile.click());
+  importFile.addEventListener('change', async () => {
+    const f = importFile.files && importFile.files[0];
+    if (!f) return;
+    syncStatus.textContent = t('loading'); syncStatus.className = '';
+    try {
+      const buf = await f.arrayBuffer();
+      const r = await fetch('/api/import', { method: 'POST', body: buf });
+      const res = await r.json();
+      if (!res.ok) throw new Error(res.message || 'HTTP ' + r.status);
+      syncStatus.textContent = res.imported ? t('importOk', res.imported) : t('importNone');
+      syncStatus.className = 'ok';
+      load(); refreshStatus();
+    } catch (e) {
+      syncStatus.textContent = t('importFail', e && e.message ? e.message : e);
+      syncStatus.className = 'err';
+    } finally { importFile.value = ''; }
+  });
+
   // ---------- 设置面板 ----------
   const settingsPanel = document.getElementById('settingsPanel');
   document.getElementById('settingsBtn').addEventListener('click', (ev) => {
@@ -512,7 +887,9 @@
   loadPrefs().then(() => {
     applyTheme();
     applyI18n();
+    loadSyncForm();
     load().then(() => { knownIds = new Set(pages.map(p => p.id)); connectEvents(); });
+    refreshStatus();
   });
 
 </script>

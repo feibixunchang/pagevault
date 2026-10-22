@@ -38,6 +38,10 @@ rm -f "$OUT/Contents/Resources/electron.icns"
 # 5. Bundle the sync server (extra resource; exclude runtime data/)
 rsync -a --delete --exclude=data "$SERVER/" "$OUT/Contents/Resources/server/"
 
+# 5b. Bundle the browser extension (menu "安装浏览器扩展…" 定位到这里；
+#     阅读器安装指引里显示的扩展路径也是它)
+rsync -a --delete --exclude='.DS_Store' "$ROOT/extension/" "$OUT/Contents/Resources/extension/"
+
 # 6. Ad-hoc sign (mandatory on Apple Silicon after modifying the bundle)
 codesign --force --deep --sign - "$OUT" 2>&1 | tail -3 || true
 codesign --verify --deep --strict "$OUT" && echo "SIGN OK"

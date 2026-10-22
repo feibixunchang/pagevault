@@ -8,18 +8,105 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { SyncEngine, extractMeta, ONLINE_WINDOW_MS } = require('./sync');
+const { zipStore, zipRead } = require('./zip');
 
+const VERSION = '0.6.0';
 const PORT = process.env.PORT || 8731;
 const ROOT = __dirname;
 const DATA_ROOT = process.env.PAGEVAULT_DATA || path.join(ROOT, 'data');
 const DATA_DIR = path.join(DATA_ROOT, 'pages');
 const INDEX_FILE = path.join(DATA_ROOT, 'index.json');
 const PREFS_FILE = path.join(DATA_ROOT, 'prefs.json');
+const DELETIONS_FILE = path.join(DATA_ROOT, 'deletions.json');
+const EXT_STATE_FILE = path.join(DATA_ROOT, 'extension-state.json');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const MAX_BODY = 80 * 1024 * 1024; // 80MB cap per page
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(INDEX_FILE)) fs.writeFileSync(INDEX_FILE, '[]');
+
+function log() {
+  const line = new Date().toISOString() + ' ' + Array.from(arguments).join(' ') + '\n';
+  try { fs.appendFileSync(path.join(DATA_ROOT, 'server.log'), line); } catch { /* 忽略 */ }
+  console.log.apply(console, arguments);
+}
+
+// ---------- 扩展心跳状态（阅读器状态栏显示"扩展已连接"） ----------
+let extState = { lastSeen: 0 };
+try { extState = Object.assign(extState, JSON.parse(fs.readFileSync(EXT_STATE_FILE, 'utf8'))); } catch { /* 无文件用默认 */ }
+function touchExtension() {
+  extState.lastSeen = Date.now();
+  try { fs.writeFileSync(EXT_STATE_FILE, JSON.stringify(extState)); } catch { /* 只读环境忽略 */ }
+}
+function extensionOnline() {
+  return extState.lastSeen > 0 && (Date.now() - extState.lastSeen) < ONLINE_WINDOW_MS;
+}
+
+// ---------- 浏览器扩展目录（随安装包分发；菜单"安装浏览器扩展…"定位到这里） ----------
+function extensionDir() {
+  const packed = path.join(ROOT, '..', 'extension'); // Resources/extension 或 仓库/extension
+  const inner = path.join(ROOT, 'extension');
+  for (const d of [packed, inner]) {
+    try { if (fs.existsSync(path.join(d, 'manifest.json'))) return d; } catch { /* 继续试下一个 */ }
+  }
+  return null;
+}
+
+// ---------- 删除记录（tombstone） ----------
+function loadDeletions() {
+  try { const a = JSON.parse(fs.readFileSync(DELETIONS_FILE, 'utf8')); return Array.isArray(a) ? a : []; }
+  catch { return []; }
+}
+function saveDeletions(list) {
+  try { fs.writeFileSync(DELETIONS_FILE, JSON.stringify(list, null, 2)); } catch { /* 只读环境忽略 */ }
+}
+function addDeletion(id) {
+  const list = loadDeletions().filter(d => d.id !== id);
+  list.push({ id, deletedAt: new Date().toISOString() });
+  if (list.length > 2000) list.splice(0, list.length - 2000); // 防止无限增长
+  saveDeletions(list);
+}
+
+// ---------- 同步引擎（WebDAV 账号 = 多端同步的"同一账号"） ----------
+function loadPrefsRaw() {
+  try { return JSON.parse(fs.readFileSync(PREFS_FILE, 'utf8')); } catch { return {}; }
+}
+const sync = new SyncEngine({
+  loadIndex,
+  saveIndex,
+  loadDeletions,
+  saveDeletions,
+  readPage: (id) => { try { return fs.readFileSync(path.join(DATA_DIR, id + '.html'), 'utf8'); } catch { return null; } },
+  writePage: (id, html) => fs.writeFileSync(path.join(DATA_DIR, id + '.html'), html, 'utf8'),
+  deletePageFile: (id) => { try { fs.unlinkSync(path.join(DATA_DIR, id + '.html')); } catch { /* 已不存在 */ } },
+  // 远端索引条目 + 页面文件 -> 规范化的本地 meta（优先用文件头 pv-meta 注释补全）
+  normalizeMeta: (rm, html) => {
+    const embedded = extractMeta(html) || {};
+    const meta = Object.assign({}, rm, embedded);
+    meta.id = rm.id || embedded.id;
+    meta.title = String(rm.title || embedded.title || 'Untitled').slice(0, 300);
+    meta.url = String(rm.url || embedded.url || '').slice(0, 2000);
+    meta.savedAt = rm.savedAt || embedded.savedAt || new Date().toISOString();
+    meta.platform = String(rm.platform || embedded.platform || 'unknown').slice(0, 60);
+    meta.format = String(rm.format || embedded.format || 'html').slice(0, 20);
+    meta.file = meta.id + '.html';
+    try { meta.size = Buffer.byteLength(html); } catch { /* 忽略 */ }
+    return meta;
+  },
+  log,
+  onSynced: () => broadcastMeta({ type: 'synced', at: Date.now() })
+});
+function syncConfig() {
+  const p = loadPrefsRaw();
+  const s = p.sync || {};
+  return { url: s.url || '', user: s.user || '', pass: s.pass || '', dir: s.dir || 'pagevault', intervalSec: s.intervalSec || 0 };
+}
+function restartSyncTimer() {
+  const cfg = syncConfig();
+  sync.stop();
+  if (cfg.url && cfg.user && cfg.intervalSec > 0) sync.start(cfg);
+}
 
 function loadIndex() {
   try { return JSON.parse(fs.readFileSync(INDEX_FILE, 'utf8')); }
@@ -170,9 +257,150 @@ const server = http.createServer((req, res) => {
       const clean = {};
       if (['system', 'light', 'dark'].includes(prefs.theme)) clean.theme = prefs.theme;
       if (['system', 'zh', 'en'].includes(prefs.lang)) clean.lang = prefs.lang;
+      if (prefs.sync && typeof prefs.sync === 'object') {
+        // 同步配置（WebDAV 账号 = 多端同步的同一账号）
+        const s = prefs.sync;
+        clean.sync = {
+          url: String(s.url || '').slice(0, 500),
+          user: String(s.user || '').slice(0, 200),
+          pass: String(s.pass || '').slice(0, 500),
+          dir: String(s.dir || 'pagevault').slice(0, 100).replace(/[\\/:*?"<>|]+/g, ''),
+          intervalSec: [0, 10, 30, 60].includes(s.intervalSec) ? s.intervalSec : 0
+        };
+      }
       try { fs.writeFileSync(PREFS_FILE, JSON.stringify(clean, null, 2)); } catch { /* 只读环境忽略 */ }
       send(res, 200, JSON.stringify(clean), { 'Content-Type': 'application/json; charset=utf-8' });
+      restartSyncTimer();
     });
+    return;
+  }
+
+  // 运行状态：阅读器状态栏用（本地服务 / 扩展连接 / 同步状态 / 计数）
+  if (req.method === 'GET' && p === '/api/status') {
+    const list = loadIndex();
+    const s = sync.getStatus();
+    const cfg = syncConfig();
+    send(res, 200, JSON.stringify({
+      ok: true, version: VERSION, port: PORT,
+      extension: { lastSeen: extState.lastSeen, online: extensionOnline() },
+      extensionPath: extensionDir(),
+      sync: { configured: !!(cfg.url && cfg.user), status: s.status, lastSyncAt: s.lastSyncAt, lastError: s.lastError, lastStats: s.lastStats },
+      counts: { total: list.length, starred: list.filter(m => m.starred).length }
+    }), { 'Content-Type': 'application/json; charset=utf-8' });
+    return;
+  }
+
+  // 扩展心跳：保存整页即算一次活动；扩展另用 alarms 每分钟保活
+  if ((req.method === 'POST' || req.method === 'GET') && p === '/api/ping') {
+    touchExtension();
+    send(res, 200, JSON.stringify({ ok: true, lastSeen: extState.lastSeen }), { 'Content-Type': 'application/json; charset=utf-8' });
+    return;
+  }
+
+  // ---------- WebDAV 同步 ----------
+  if (req.method === 'POST' && p === '/api/sync/test') {
+    readBody(req, 1024 * 1024, (err, buf) => {
+      if (err) { send(res, 413, JSON.stringify({ ok: false, message: 'too large' }), { 'Content-Type': 'application/json' }); return; }
+      let cfg;
+      try { cfg = JSON.parse(buf.toString('utf8')); } catch { send(res, 400, JSON.stringify({ ok: false, message: 'invalid json' }), { 'Content-Type': 'application/json' }); return; }
+      (async () => {
+        try {
+          const { WebDAV } = require('./webdav');
+          const dav = new WebDAV(cfg.url.replace(/\/+$/, '') + '/' + String(cfg.dir || 'pagevault').replace(/^\/+|\/+$/g, ''));
+          dav.auth(cfg.user, cfg.pass);
+          const r = await dav.test();
+          send(res, 200, JSON.stringify(r), { 'Content-Type': 'application/json; charset=utf-8' });
+        } catch (e) {
+          send(res, 200, JSON.stringify({ ok: false, message: e && e.message ? e.message : String(e) }), { 'Content-Type': 'application/json; charset=utf-8' });
+        }
+      })();
+    });
+    return;
+  }
+  if (req.method === 'POST' && p === '/api/sync/run') {
+    sync.run(syncConfig()).then(stats => {
+      broadcastMeta({ type: 'synced', at: Date.now() });
+      send(res, 200, JSON.stringify({ ok: sync.getStatus().status !== 'error', stats, status: sync.getStatus() }), { 'Content-Type': 'application/json; charset=utf-8' });
+    });
+    return;
+  }
+  if (req.method === 'GET' && p === '/api/sync/status') {
+    send(res, 200, JSON.stringify(sync.getStatus()), { 'Content-Type': 'application/json; charset=utf-8' });
+    return;
+  }
+
+  // 整库导出：store 模式 zip（index.json + pages/*.html），自包含、可再次导入
+  if (req.method === 'GET' && p === '/api/export.zip') {
+    const list = loadIndex();
+    const files = [{ name: 'index.json', data: Buffer.from(JSON.stringify(list, null, 2), 'utf8') }];
+    for (const meta of list) {
+      let html;
+      try { html = fs.readFileSync(path.join(DATA_DIR, meta.file || (meta.id + '.html')), 'utf8'); } catch { continue; }
+      files.push({ name: 'pages/' + meta.id + '.html', data: Buffer.from(html, 'utf8') });
+    }
+    const zip = zipStore(files);
+    const d = new Date();
+    const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+    send(res, 200, zip, {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent('网页收藏备份-' + stamp + '.zip')}`
+    });
+    log('exported backup zip, pages =', files.length - 1);
+    return;
+  }
+
+  // 整库导入：上传本工具导出的 zip，按 id 合并（不覆盖已有页面）
+  if (req.method === 'POST' && p === '/api/import') {
+    readBody(req, 500 * 1024 * 1024, (err, buf) => {
+      if (err) { send(res, 413, JSON.stringify({ ok: false, message: '文件太大（上限 500MB）' }), { 'Content-Type': 'application/json' }); return; }
+      let entries;
+      try { entries = zipRead(buf); } catch (e) {
+        send(res, 400, JSON.stringify({ ok: false, message: '无法解析 zip：' + (e && e.message ? e.message : e) }), { 'Content-Type': 'application/json' });
+        return;
+      }
+      const list = loadIndex();
+      const have = new Set(list.map(m => m.id));
+      let imported = 0;
+      const metasFromIndex = new Map();
+      for (const en of entries) {
+        if (en.name === 'index.json') {
+          try {
+            const arr = JSON.parse(en.data.toString('utf8'));
+            for (const m of (Array.isArray(arr) ? arr : [])) if (m && m.id) metasFromIndex.set(m.id, m);
+          } catch { /* 忽略，走文件头注释 */ }
+        }
+      }
+      for (const en of entries) {
+        const mm = /^pages\/([\w-]+)\.html$/.exec(en.name);
+        if (!mm) continue;
+        const id = mm[1];
+        if (have.has(id)) continue;
+        const html = en.data.toString('utf8');
+        const meta = sync.hooks.normalizeMeta(metasFromIndex.get(id) || { id }, html);
+        if (!meta.id) continue;
+        fs.writeFileSync(path.join(DATA_DIR, id + '.html'), html, 'utf8');
+        list.push(meta);
+        have.add(id);
+        imported++;
+      }
+      if (imported) { saveIndex(list); broadcastMeta({ type: 'imported', count: imported }); }
+      log('imported backup, new pages =', imported);
+      sync.schedule(syncConfig()); // 导入后推给其他端
+      send(res, 200, JSON.stringify({ ok: true, imported }), { 'Content-Type': 'application/json; charset=utf-8' });
+    });
+    return;
+  }
+
+  // 扩展文件静态托管（随安装包分发；供查看 manifest / 高级用户取用）
+  if (req.method === 'GET' && p.startsWith('/extension/')) {
+    const dir = extensionDir();
+    if (!dir) { send(res, 404, 'extension not bundled'); return; }
+    const rel = decodeURIComponent(p.slice('/extension/'.length)).replace(/\\/g, '/').replace(/^\/+/, '');
+    const filePath = path.normalize(path.join(dir, rel));
+    if (rel && !filePath.startsWith(dir + path.sep)) { send(res, 403, 'forbidden'); return; }
+    const type = /\.json$/.test(rel) ? 'application/json' : /\.js$/.test(rel) ? 'text/javascript'
+      : /\.html?$/.test(rel) ? 'text/html' : /\.css$/.test(rel) ? 'text/css' : 'application/octet-stream';
+    sendFile(res, filePath, type + '; charset=utf-8');
     return;
   }
 
@@ -201,12 +429,18 @@ const server = http.createServer((req, res) => {
         size: Buffer.byteLength(html),
         file: id + '.html'
       };
-      fs.writeFileSync(path.join(DATA_DIR, meta.file), html, 'utf8');
+      // 文件头注入元数据注释：WebDAV 同步时即使 index.json 丢了也能自愈重建
+      const embedded = Object.assign({}, meta);
+      delete embedded.file;
+      const htmlWithMeta = '<!-- pv-meta:' + JSON.stringify(embedded) + ' -->\n' + html;
+      fs.writeFileSync(path.join(DATA_DIR, meta.file), htmlWithMeta, 'utf8');
       const list = loadIndex();
       list.push(meta);
       saveIndex(list);
+      touchExtension(); // 扩展刚保存过，状态栏立刻显示"已连接"
       send(res, 200, JSON.stringify({ id, savedAt: meta.savedAt }), { 'Content-Type': 'application/json; charset=utf-8' });
       broadcastSaved(meta);
+      sync.schedule(syncConfig()); // 即时同步给其他端
     });
     return;
   }
@@ -219,9 +453,11 @@ const server = http.createServer((req, res) => {
     const meta = list.find(x => x.id === id);
     if (!meta) { send(res, 404, JSON.stringify({ error: 'not found' }), { 'Content-Type': 'application/json' }); return; }
     meta.starred = !meta.starred;
+    meta.starredAt = new Date().toISOString(); // 多端同步时按时间戳解决收藏冲突
     saveIndex(list);
     broadcastMeta({ type: 'starred', id, starred: !!meta.starred });
     send(res, 200, JSON.stringify({ ok: true, starred: !!meta.starred }), { 'Content-Type': 'application/json; charset=utf-8' });
+    sync.schedule(syncConfig());
     return;
   }
 
@@ -272,8 +508,10 @@ const server = http.createServer((req, res) => {
     if (!meta) { send(res, 404, JSON.stringify({ error: 'not found' }), { 'Content-Type': 'application/json' }); return; }
     try { fs.unlinkSync(path.join(DATA_DIR, meta.file)); } catch { /* 文件可能已不存在 */ }
     saveIndex(list.filter(x => x.id !== id));
+    addDeletion(id); // tombstone：同步时让其他端也删掉，防止复活
     send(res, 200, JSON.stringify({ ok: true }), { 'Content-Type': 'application/json; charset=utf-8' });
     broadcastDeleted(id);
+    sync.schedule(syncConfig());
     return;
   }
 
@@ -299,4 +537,5 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`网页收藏 sync server running at http://localhost:${PORT}`);
+  restartSyncTimer(); // 按保存的同步配置恢复轮询
 });
