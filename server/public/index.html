@@ -75,6 +75,22 @@
   #frame { flex:1; border:0; width:100%; background:var(--frame-bg); }
   .empty { margin:auto; color:var(--muted); text-align:center; padding:40px; }
   .empty b { color:var(--text); }
+
+  /* 设置面板里的手动主题覆盖（优先级高于系统跟随） */
+  html.theme-light { --bg:#f7f8fa; --panel:#ffffff; --border:#e3e6ea; --text:#1f2933; --muted:#6b7280; --accent:#185fa5; --accent-bg:#e6f1fb; --btn-bg:#ffffff; --btn-text:#1f2933; --danger:#c0392b; --danger-bg:#fdecec; --danger-border:#e3b3b3; --star:#e8b93c; --star-off:#c7ccd4; --starred-bg:#fdf6e3; --starred-text:#b8860b; --starred-border:#e8b93c; --flash-bg:#d9f2e3; --rv-bg:#ffffff; --rv-text:#1f2933; --rv-pre:#f4f5f7; --rv-byline-border:#e3e6ea; --frame-bg:#ffffff; }
+  html.theme-dark { --bg:#131518; --panel:#1c1f26; --border:#2e3340; --text:#e8eaed; --muted:#9aa3af; --accent:#6cb2f2; --accent-bg:#1b2a3c; --btn-bg:#23272f; --btn-text:#e8eaed; --danger:#f28b82; --danger-bg:#3a2222; --danger-border:#5a3636; --star:#f2c94c; --star-off:#6b7280; --starred-bg:#3a3320; --starred-text:#f2c94c; --starred-border:#8a7a3a; --flash-bg:#1e3d2f; --rv-bg:#131518; --rv-text:#dde1e6; --rv-pre:#23272f; --rv-byline-border:#2e3340; --frame-bg:#1a1d22; }
+
+  /* 设置按钮与下拉面板 */
+  #settingsBtn { padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--btn-bg); font-size:13px; cursor:pointer; color:var(--btn-text); }
+  #settingsBtn:hover { border-color:var(--accent); color:var(--accent); }
+  #settingsPanel { display:none; position:fixed; top:52px; right:16px; width:250px; background:var(--panel); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 28px rgba(0,0,0,.16); z-index:50; padding:14px 16px; }
+  #settingsPanel.open { display:block; }
+  #settingsPanel h2 { font-size:12px; color:var(--muted); margin:0 0 8px; font-weight:600; }
+  #settingsPanel h2:not(:first-child) { margin-top:16px; }
+  .seg { display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .seg button { flex:1; padding:6px 0; border:0; background:var(--btn-bg); color:var(--btn-text); font-size:12px; cursor:pointer; }
+  .seg button + button { border-left:1px solid var(--border); }
+  .seg button.on { background:var(--accent-bg); color:var(--accent); font-weight:600; }
 </style>
 </head>
 <body>
@@ -85,17 +101,122 @@
     <input id="search" placeholder="搜索标题或链接…" />
     <button id="fullsearch" title="同时搜索页面正文内容">全文</button>
     <button id="refresh" title="重新加载列表">↻ 刷新</button>
+    <button id="settingsBtn" title="设置">⚙</button>
   </header>
+  <div id="settingsPanel">
+    <h2 data-i18n="theme">外观</h2>
+    <div class="seg" id="themeSeg">
+      <button data-v="system" data-i18n="system">跟随系统</button>
+      <button data-v="light" data-i18n="light">浅色</button>
+      <button data-v="dark" data-i18n="dark">深色</button>
+    </div>
+    <h2 data-i18n="lang">语言</h2>
+    <div class="seg" id="langSeg">
+      <button data-v="system" data-i18n="system">跟随系统</button>
+      <button data-v="zh">中文</button>
+      <button data-v="en">English</button>
+    </div>
+  </div>
   <main>
     <div id="list"></div>
     <div id="view">
-      <div id="viewbar"><span id="viewmeta">尚未选择</span><button id="reader" style="display:none">📖 阅读模式</button><button id="exp" style="display:none">⤓ 导出 .html</button><button id="del" style="display:none">🗑 删除</button></div>
+      <div id="viewbar"><span id="viewmeta" data-i18n="noSelect">尚未选择</span><button id="reader" style="display:none" data-i18n="readerMode">📖 阅读模式</button><button id="exp" style="display:none" data-i18n="exportHtml">⤓ 导出 .html</button><button id="del" style="display:none" data-i18n="del">🗑 删除</button></div>
       <iframe id="frame" sandbox="allow-same-origin allow-scripts"></iframe>
     </div>
   </main>
 
 <script src="/readability.js"></script>
 <script>
+  'use strict';
+
+  // ---------- 多语言 ----------
+  const I18N = {
+    zh: {
+      appName: '网页收藏', count: n => n + ' 个页面', starred: '☆ 收藏', starredOn: '★ 收藏中',
+      searchPh: '搜索标题或链接…', fullsearchPh: '全文搜索标题、链接和正文…', full: '全文',
+      refresh: '↻ 刷新', settings: '⚙', noSelect: '尚未选择', readerMode: '📖 阅读模式',
+      exportHtml: '⤓ 导出 .html', del: '🗑 删除',
+      savedAt: '已保存于', from: '来自', openOriginal: '查看原链接',
+      noMatch: '没有匹配的页面', noFullMatch: '正文里没搜到，试试其他关键词',
+      confirmDel: '确定删除这个保存的页面吗？', delFailed: '删除失败，请重试', deleted: '已删除',
+      starFailed: '收藏操作失败',
+      notArticle: '这个页面暂时抽不出正文（可能不是文章型页面）', readFail: '阅读模式失败：',
+      settingsTitle: '设置', theme: '外观', lang: '语言', system: '跟随系统', light: '浅色', dark: '深色',
+      from2: '来源', loading: '加载中…', saved: '已保存', exportFail: '导出失败'
+    },
+    en: {
+      appName: 'Web Vault', count: n => n + (n === 1 ? ' page' : ' pages'), starred: '☆ Favorites', starredOn: '★ Favorited',
+      searchPh: 'Search title or URL…', fullsearchPh: 'Full-text search…', full: 'Text',
+      refresh: '↻ Reload', settings: '⚙', noSelect: 'Nothing selected', readerMode: '📖 Reader mode',
+      exportHtml: '⤓ Export .html', del: '🗑 Delete',
+      savedAt: 'Saved', from: 'from', openOriginal: 'Open original',
+      noMatch: 'No matching pages', noFullMatch: 'No matches in page content — try other keywords',
+      confirmDel: 'Delete this saved page?', delFailed: 'Delete failed, please retry', deleted: 'Deleted',
+      starFailed: 'Star toggle failed',
+      notArticle: 'No article content found (maybe not an article page)', readFail: 'Reader mode failed: ',
+      settingsTitle: 'Settings', theme: 'Appearance', lang: 'Language', system: 'System', light: 'Light', dark: 'Dark',
+      from2: 'Source', loading: 'Loading…', saved: 'Saved', exportFail: 'Export failed'
+    }
+  };
+
+  // ---------- 偏好（主题/语言）：服务端持久化，localStorage 兜底 ----------
+  let prefs = { theme: 'system', lang: 'system' };
+  const LS_KEY = 'pv-prefs';
+
+  function resolveLang() {
+    if (prefs.lang !== 'system') return prefs.lang;
+    return (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  }
+  function t(key, ...args) {
+    const dict = I18N[resolveLang()] || I18N.zh;
+    const v = dict[key];
+    return typeof v === 'function' ? v(...args) : (v !== undefined ? v : key);
+  }
+
+  async function loadPrefs() {
+    try {
+      const r = await fetch('/api/prefs');
+      const s = await r.json();
+      if (s && (s.theme || s.lang)) { prefs = Object.assign({}, prefs, s); return; }
+    } catch { /* 服务端不可用走本地 */ }
+    try { prefs = Object.assign({}, prefs, JSON.parse(localStorage.getItem(LS_KEY) || '{}')); } catch { /* 忽略 */ }
+  }
+  async function savePrefs() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)); } catch { /* 忽略 */ }
+    try { await fetch('/api/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(prefs) }); } catch { /* 忽略 */ }
+  }
+
+  // ---------- 主题应用 ----------
+  const darkMQ = window.matchMedia('(prefers-color-scheme: dark)');
+  function applyTheme() {
+    const html = document.documentElement;
+    const dark = prefs.theme === 'dark' || (prefs.theme === 'system' && darkMQ.matches);
+    html.classList.toggle('theme-dark', dark);
+    html.classList.toggle('theme-light', prefs.theme === 'light');
+    document.querySelectorAll('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === prefs.theme));
+  }
+  darkMQ.addEventListener?.('change', () => { if (prefs.theme === 'system') applyTheme(); });
+
+  // ---------- 语言应用 ----------
+  function applyI18n() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.dataset.i18n;
+      const v = t(key);
+      if (v !== key) el.textContent = v;
+    });
+    document.title = t('appName') + ' · ' + (resolveLang() === 'zh' ? '我的网页库' : 'My Web Vault');
+    document.querySelector('header h1').textContent = t('appName');
+    searchEl.placeholder = fullSearch ? t('fullsearchPh') : t('searchPh');
+    document.getElementById('onlyStarred').textContent = onlyStarred ? t('starredOn') : t('starred');
+    document.querySelectorAll('#langSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === prefs.lang));
+    countEl.textContent = pages.length ? t('count', pages.length) : '';
+    render(searchEl.value);
+    if (currentId) {
+      const p = pages.find(x => x.id === currentId);
+      if (p) openPage(p);
+    }
+  }
+
   const listEl = document.getElementById('list');
   const frame = document.getElementById('frame');
   const viewmeta = document.getElementById('viewmeta');
@@ -111,7 +232,7 @@
   async function load() {
     const r = await fetch('/api/pages');
     pages = await r.json();
-    countEl.textContent = pages.length + ' 个页面';
+    countEl.textContent = pages.length ? t('count', pages.length) : '';
     render(searchEl.value);
   }
 
@@ -128,7 +249,7 @@
     }
     listEl.innerHTML = '';
     if (!items.length) {
-      listEl.innerHTML = '<div class="empty">' + (fullSearch && f ? '正文里没搜到，试试其他关键词' : '没有匹配的页面') + '</div>';
+      listEl.innerHTML = '<div class="empty">' + (fullSearch && f ? t('noFullMatch') : t('noMatch')) + '</div>';
       return;
     }
     items.forEach(p => {
@@ -142,7 +263,7 @@
         <button class="del-x" title="删除">×</button>`;
       d.querySelector('.t').textContent = p.title || '(无标题)';
       d.querySelector('.badge').textContent = p.platform || 'unknown';
-      d.querySelector('.plat').textContent = '来源 ' + (p.url ? new URL(p.url).hostname : '—');
+      d.querySelector('.plat').textContent = t('from2') + ' ' + (p.url ? new URL(p.url).hostname : '—');
       d.querySelector('.dt').textContent = date.toLocaleString();
       d.querySelector('.sz').textContent = (p.size/1024).toFixed(0) + ' KB';
       if (p.starred) d.querySelector('.star').classList.add('on');
@@ -172,8 +293,8 @@
     const el = document.querySelector('.item[data-id="' + p.id + '"]');
     if (el) el.classList.add('active');
     frame.src = '/p/' + p.id;
-    viewmeta.innerHTML = '已保存于 <b>' + new Date(p.savedAt).toLocaleString() + '</b> · 来自 ' + (p.platform||'unknown') +
-      ' · <a href="' + (p.url||'#') + '" target="_blank" rel="noopener">查看原链接</a>';
+    viewmeta.innerHTML = t('savedAt') + ' <b>' + new Date(p.savedAt).toLocaleString() + '</b> · ' + t('from') + ' ' + (p.platform||'unknown') +
+      ' · <a href="' + (p.url||'#') + '" target="_blank" rel="noopener">' + t('openOriginal') + '</a>';
     document.getElementById('del').style.display = 'inline-block';
     document.getElementById('reader').style.display = 'inline-block';
     document.getElementById('exp').style.display = 'inline-block';
@@ -188,7 +309,7 @@
         if (p) p.starred = !!d.starred;
         render(searchEl.value);
       })
-      .catch(() => alert('收藏操作失败'));
+      .catch(() => alert(t('starFailed')));
   }
 
   document.getElementById('exp').addEventListener('click', () => {
@@ -205,7 +326,7 @@
   document.getElementById('fullsearch').addEventListener('click', function () {
     fullSearch = !fullSearch;
     this.classList.toggle('on', fullSearch);
-    searchEl.placeholder = fullSearch ? '全文搜索标题、链接和正文…' : '搜索标题或链接…';
+    searchEl.placeholder = fullSearch ? t('fullsearchPh') : t('searchPh');
     if (!fullSearch) ftResults = [];
     render(searchEl.value);
   });
@@ -240,7 +361,7 @@
       if (!doc || !doc.documentElement) throw new Error('页面尚未加载完成');
       const parsed = new DOMParser().parseFromString(doc.documentElement.outerHTML, 'text/html');
       const article = new Readability(parsed).parse();
-      if (!article || !article.content) { alert('这个页面暂时抽不出正文（可能不是文章型页面）'); return; }
+      if (!article || !article.content) { alert(t('notArticle')); return; }
       const byline = article.byline ? '<p class="rv-byline">' + article.byline + '</p>' : '';
       const rvStyle = `<style>
         :root { color-scheme: light dark; }
@@ -259,25 +380,31 @@
           .rv-body pre { background:#23272f; }
           .rv-byline { color:#9aa3af; border-bottom-color:#2e3340; }
         }
+        html.rv-dark body, html.rv-dark .rv-body { background:#131518; }
+        html.rv-dark .rv-body { color:#dde1e6; }
+        html.rv-dark .rv-body a { color:#6cb2f2; }
+        html.rv-dark .rv-body pre { background:#23272f; }
+        html.rv-dark .rv-byline { color:#9aa3af; border-bottom-color:#2e3340; }
       </style>`;
+      const rvDark = prefs.theme === 'dark' || (prefs.theme === 'system' && darkMQ.matches);
       const fdoc = frame.contentDocument;
       fdoc.open();
-      fdoc.write('<!DOCTYPE html><html><head><meta charset="utf-8">' + rvStyle + '</head><body>'
+      fdoc.write('<!DOCTYPE html><html class="' + (rvDark ? 'rv-dark' : '') + '"><head><meta charset="utf-8">' + rvStyle + '</head><body>'
         + '<div class="rv-body"><h1>' + (article.title || '') + '</h1>' + byline + article.content + '</div></body></html>');
       fdoc.close();
       readerOn = true;
       document.getElementById('reader').classList.add('on');
     } catch (e) {
-      alert('阅读模式失败：' + ((e && e.message) || e));
+      alert(t('readFail') + ((e && e.message) || e));
     }
   });
 
   function deletePage(id) {
     if (!id) return;
-    if (!confirm('确定删除这个保存的页面吗？')) return;
+    if (!confirm(t('confirmDel'))) return;
     fetch('/api/pages/' + id, { method: 'DELETE' })
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); applyDeleted(id); })
-      .catch(() => alert('删除失败，请重试'));
+      .catch(() => alert(t('delFailed')));
   }
 
   // 从列表与视图里移除（本地或 SSE 触发）
@@ -288,7 +415,7 @@
       currentId = null;
       readerOn = false;
       frame.src = 'about:blank';
-      viewmeta.textContent = '已删除';
+      viewmeta.textContent = t('deleted');
       document.getElementById('del').style.display = 'none';
       document.getElementById('reader').style.display = 'none';
       document.getElementById('exp').style.display = 'none';
@@ -327,7 +454,36 @@
     };
     es.onerror = () => { /* EventSource 自带断线重连 */ };
   }
-  load().then(() => { knownIds = new Set(pages.map(p => p.id)); connectEvents(); });
+  // ---------- 设置面板 ----------
+  const settingsPanel = document.getElementById('settingsPanel');
+  document.getElementById('settingsBtn').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    settingsPanel.classList.toggle('open');
+  });
+  document.addEventListener('click', (ev) => {
+    if (!settingsPanel.contains(ev.target) && ev.target.id !== 'settingsBtn') settingsPanel.classList.remove('open');
+  });
+  document.getElementById('themeSeg').addEventListener('click', (ev) => {
+    const v = ev.target.dataset && ev.target.dataset.v;
+    if (!v) return;
+    prefs.theme = v;
+    savePrefs();
+    applyTheme();
+  });
+  document.getElementById('langSeg').addEventListener('click', (ev) => {
+    const v = ev.target.dataset && ev.target.dataset.v;
+    if (!v) return;
+    prefs.lang = v;
+    savePrefs();
+    applyI18n();
+  });
+
+  // ---------- 启动 ----------
+  loadPrefs().then(() => {
+    applyTheme();
+    applyI18n();
+    load().then(() => { knownIds = new Set(pages.map(p => p.id)); connectEvents(); });
+  });
 
 </script>
 </body>

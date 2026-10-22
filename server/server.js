@@ -14,6 +14,7 @@ const ROOT = __dirname;
 const DATA_ROOT = process.env.PAGEVAULT_DATA || path.join(ROOT, 'data');
 const DATA_DIR = path.join(DATA_ROOT, 'pages');
 const INDEX_FILE = path.join(DATA_ROOT, 'index.json');
+const PREFS_FILE = path.join(DATA_ROOT, 'prefs.json');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const MAX_BODY = 80 * 1024 * 1024; // 80MB cap per page
 
@@ -151,6 +152,27 @@ const server = http.createServer((req, res) => {
     const client = { res };
     sseClients.add(client);
     req.on('close', () => sseClients.delete(client));
+    return;
+  }
+
+  // 偏好设置（主题/语言，阅读器与桌面端主进程共用）
+  if (req.method === 'GET' && p === '/api/prefs') {
+    let prefs = {};
+    try { prefs = JSON.parse(fs.readFileSync(PREFS_FILE, 'utf8')); } catch { /* 无文件用默认 */ }
+    send(res, 200, JSON.stringify(prefs), { 'Content-Type': 'application/json; charset=utf-8' });
+    return;
+  }
+  if (req.method === 'PUT' && p === '/api/prefs') {
+    readBody(req, 1024 * 1024, (err, buf) => {
+      if (err) { send(res, 413, JSON.stringify({ error: 'too large' }), { 'Content-Type': 'application/json' }); return; }
+      let prefs;
+      try { prefs = JSON.parse(buf.toString('utf8')); } catch { send(res, 400, JSON.stringify({ error: 'invalid json' }), { 'Content-Type': 'application/json' }); return; }
+      const clean = {};
+      if (['system', 'light', 'dark'].includes(prefs.theme)) clean.theme = prefs.theme;
+      if (['system', 'zh', 'en'].includes(prefs.lang)) clean.lang = prefs.lang;
+      try { fs.writeFileSync(PREFS_FILE, JSON.stringify(clean, null, 2)); } catch { /* 只读环境忽略 */ }
+      send(res, 200, JSON.stringify(clean), { 'Content-Type': 'application/json; charset=utf-8' });
+    });
     return;
   }
 
