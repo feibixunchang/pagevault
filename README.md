@@ -4,7 +4,7 @@
 
 一个**六端同步**的"整页网页收藏"工具：在浏览器里点一下扩展，就把当前页面**完整**保存下来，落到本地同步库，之后随时离线回看，像本地浏览一样。每条记录都带**来源平台**和**保存时间**。
 
-当前版本：**v1.0.0**。已实现四端：浏览器扩展 + Mac 桌面端 + Windows 桌面端 + Docker 自托管端（飞牛 NAS 实测运行）。
+当前版本：**v1.1.0**。已实现四端：浏览器扩展 + Mac 桌面端 + Windows 桌面端 + Docker 自托管端（飞牛 NAS 实测运行）。
 下一步：iOS 端（Xcode 原生壳 + WebView 阅读器），之后是 Linux / Android。
 
 ## 架构
@@ -20,7 +20,7 @@
    │  WebView 渲染保存的 HTML（后续由原生壳 / Flutter 接管）
 ```
 
-六端 = 5 客户端（Mac / Win / Linux / iOS / Android）+ 1 服务端（Docker）。已实现：扩展 + Mac + Windows + Docker（v1.0.0）。
+六端 = 5 客户端（Mac / Win / Linux / iOS / Android）+ 1 服务端（Docker）。已实现：扩展 + Mac + Windows + Docker（v1.1.0）。
 
 ## 目录
 
@@ -227,7 +227,7 @@ docker compose up -d --build
    docker compose logs -f  # 看启动日志
    ```
 
-4. 浏览器打开 `http://<NAS的IP>:8731`——底部状态栏会显示 **「Docker 版 v1.0.0」**，
+4. 浏览器打开 `http://<NAS的IP>:8731`——底部状态栏会显示 **「Docker 版 v1.1.x」**，
    说明连的是容器端（和桌面版用的是同一套数据格式）。
 
 ### 容器端的扩展怎么装
