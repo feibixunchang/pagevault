@@ -9,7 +9,7 @@ ROOT=/Users/lovezjkxlove/WorkBuddy/2026-10-22-13-27-54/pagevault
 DESKTOP=$ROOT/desktop
 SERVER=$ROOT/server
 SRC_ELECTRON=$DESKTOP/node_modules/electron/dist/Electron.app
-OUT=$DESKTOP/dist/PageVault.app
+OUT=$DESKTOP/dist/网页收藏.app
 
 mkdir -p "$DESKTOP/dist"
 
@@ -18,10 +18,10 @@ mkdir -p "$DESKTOP/dist"
 #    load Contents/Resources/app. Removing it makes the binary fall back to a Node REPL.
 rsync -a --delete "$SRC_ELECTRON/" "$OUT/"
 
-# 2. Rename the executable to PageVault
-cp "$OUT/Contents/MacOS/Electron" "$OUT/Contents/MacOS/PageVault"
+# 2. Rename the executable to 网页收藏
+cp "$OUT/Contents/MacOS/Electron" "$OUT/Contents/MacOS/网页收藏"
 rm -f "$OUT/Contents/MacOS/Electron"
-chmod +x "$OUT/Contents/MacOS/PageVault"
+chmod +x "$OUT/Contents/MacOS/网页收藏"
 
 # 3. Replace Info.plist
 cp "$DESKTOP/Info.plist" "$OUT/Contents/Info.plist"

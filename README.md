@@ -38,9 +38,9 @@ pagevault/
 │   └── README.md
 ├── desktop/             # Mac 桌面端（Electron，真正的 .app）
 │   ├── main.js           # 启动内置同步服务端 + 原生窗口
-│   ├── build-app.sh      # 组装并 ad-hoc 签名 → dist/PageVault.app
-│   ├── make_icon.py      # 生成 AppIcon.icns（PageVault 正式图标）
-│   └── dist/PageVault.app
+│   ├── build-app.sh      # 组装并 ad-hoc 签名 → dist/网页收藏.app
+│   ├── make_icon.py      # 生成 AppIcon.icns（正式图标）
+│   └── dist/网页收藏.app
 ├── load-extension.sh     # 扩展加载辅助（复制路径 + 打开扩展管理页）
 └── run-mac.sh            # 一键在 Mac 上启动（纯服务端模式）
 ```
@@ -49,11 +49,11 @@ pagevault/
 
 ### 方式 A：桌面端 App（推荐）
 
-App 已安装到 `~/Applications/PageVault.app`，**Launchpad 里搜 "PageVault" 即可找到**，拖到 Dock 可常驻。
+App 已安装到 `~/Applications/网页收藏.app`，**Launchpad 里搜「网页收藏」即可找到**，拖到 Dock 可常驻。
 若 Launchpad 还没出现，从 Finder 打开 `~/Applications` 双击即可；想常驻就拖到 Dock。
 
 - App 自带同步服务端（内置在 Resources/server，随 App 启停），数据存在
-  `~/Library/Application Support/PageVault/`
+  `~/Library/Application Support/pagevault-desktop/`（改名不丢库，路径已钉死）
 - 窗口就是阅读器；扩展照常往 `http://localhost:8731` 保存
 - 首次打开若被 Gatekeeper 拦（未公证），右键 →「打开」，或到
   系统设置 → 隐私与安全性 → 点「仍要打开」

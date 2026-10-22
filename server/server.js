@@ -276,5 +276,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`PageVault sync server running at http://localhost:${PORT}`);
+  console.log(`网页收藏 sync server running at http://localhost:${PORT}`);
 });

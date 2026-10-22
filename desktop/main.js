@@ -14,6 +14,12 @@ const path = require('path');
 const PORT = 8731;
 let serverProc = null;
 
+// 显式钉死数据目录：不随 app 显示名（网页收藏）变化，保证升级/改名不丢库。
+// （package.json 的 name 决定默认 userData；改名会换目录，这里覆盖掉。）
+try {
+  app.setPath('userData', path.join(app.getPath('appData'), 'pagevault-desktop'));
+} catch (e) { /* 老版本 Electron 不支持时用默认值 */ }
+
 function serverScriptPath() {
   const packed = path.join(process.resourcesPath, 'server', 'server.js');
   const dev = path.join(__dirname, '..', 'server', 'server.js');
@@ -48,7 +54,7 @@ function createWindow() {
     height: 800,
     minWidth: 820,
     minHeight: 600,
-    title: 'PageVault',
+    title: '网页收藏 · 我的网页库',
     backgroundColor: '#f7f8fa',
     webPreferences: {
       nodeIntegration: false,
