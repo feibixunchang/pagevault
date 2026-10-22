@@ -4,8 +4,8 @@
 
 一个**六端同步**的"整页网页收藏"工具：在浏览器里点一下扩展，就把当前页面**完整**保存下来，落到本地同步库，之后随时离线回看，像本地浏览一样。每条记录都带**来源平台**和**保存时间**。
 
-当前版本：**v1.1.0**。已实现四端：浏览器扩展 + Mac 桌面端 + Windows 桌面端 + Docker 自托管端（飞牛 NAS 实测运行）。
-下一步：iOS 端（Xcode 原生壳 + WebView 阅读器），之后是 Linux / Android。
+当前版本：**v1.1.0**。已实现五端：浏览器扩展 + Mac 桌面端 + Windows 桌面端 + Docker 自托管端（飞牛 NAS 实测运行）+ iOS 端（自签真机）。
+下一步：Linux / Android。
 
 ## 架构
 
@@ -52,6 +52,10 @@ pagevault/
 │   ├── make_icon_ico.py  # 由同一母版生成 AppIcon.ico（Windows 图标）
 │   ├── vendor/node_modules/  # resedit + pe-library（嵌图标用，MIT）
 │   └── dist/
+├── ios/                 # iOS 端（SwiftUI 原生壳 + WKWebView 阅读页 + 本地缓存）
+│   ├── project.yml       # XcodeGen 工程定义（版本号由 stamp-version.js 统一写）
+│   ├── PageVault.xcodeproj/  # 可直接打开运行（自签装真机）
+│   └── PageVault/        # APIClient / Cache / Store / RootView / ReaderView / SettingsView
 ├── load-extension.sh     # 扩展加载辅助（复制路径 + 打开扩展管理页）
 └── run-mac.sh            # 一键在 Mac 上启动（纯服务端模式）
 ```
@@ -283,6 +287,25 @@ http://<NAS的IP>:8731/api/extension.zip     # 下载后解压，chrome://extens
 | 运行形态标识 | `PAGEVAULT_PLATFORM=docker`（界面据此显示"Docker 版"） |
 | 健康检查 | 内置，每 30 秒 GET `/api/status` |
 
+## iOS 端（自签装真机）
+
+原生壳 + 本地缓存：列表/搜索/星标是 SwiftUI 的，正文用 WKWebView 读服务端已存的 HTML。
+读过的页面正文会自动存手机沙盒，**断网也能翻**（图片等远程资源需要联网）。
+
+```bash
+open ios/PageVault.xcodeproj     # 打开工程
+```
+
+1. TARGETS → PageVault → **Signing & Capabilities** → Team 选自己的 Apple ID（个人免费账号即可）；
+   Bundle ID 若被占用就改成 `com.你的名字.pagevault`
+2. 数据线连 iPhone（手机上「信任此电脑」）→ 顶部选你的设备 → **⌘R**
+3. 首次安装会提示未受信任：**设置 → 通用 → VPN 与设备管理 → 开发者 App → 信任**
+4. 首次打开弹「允许访问本地网络」——必须允许，否则连不上电脑/NAS
+5. 设置里填服务端：NAS `http://192.168.1.2:8731`，或 Mac 桌面端的局域网地址，点「测试连接」验证
+
+> 免费账号签的 App 7 天过期，到期重跑一次 ⌘R 即可。
+> 细节、重构工程、命令行编译见 [`ios/README.md`](ios/README.md)。
+
 ## 在 Mac 上运行（MVP）
 
 ### 方式 A：桌面端 App（推荐）
@@ -363,6 +386,6 @@ App 已安装到 `~/Applications/网页收藏.app`，**Launchpad 里搜「网页
 2. ✅ 提升捕获保真度（接入 SingleFile 库，扩展 v0.4）
 3. ✅ 原生 Mac 壳（Electron），真正的 `.app` 已装到 `~/Applications`
 4. ✅ 阅读器增强：SSE 实时刷新、删除、收藏、全文搜索、阅读模式、导出、自动滚动触发懒加载
-5. 🔜 Windows / Linux / iOS / Android 客户端（共用同一服务端协议；手机端默认阅读模式）
-6. ✅ Docker 自托管端上线（飞牛 NAS 实测）+ ✅ 多同步目标（WebDAV / PageVault 对端互为源与备份）
-7. 🔜 iOS 端（Xcode 原生壳）+ 端到端加密
+5. ✅ Windows 客户端 + Docker 自托管端（飞牛 NAS 实测）+ 多同步目标（WebDAV / PageVault 对端互为源与备份）
+6. ✅ iOS 端（SwiftUI 原生壳 + WKWebView 阅读器 + 本地缓存，自签真机）
+7. 🔜 Linux / Android 客户端 + 端到端加密
