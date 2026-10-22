@@ -91,6 +91,18 @@
   .seg button { flex:1; padding:6px 0; border:0; background:var(--btn-bg); color:var(--btn-text); font-size:12px; cursor:pointer; }
   .seg button + button { border-left:1px solid var(--border); }
   .seg button.on { background:var(--accent-bg); color:var(--accent); font-weight:600; }
+
+  /* 本地服务断连提示条（客户端没起来 / 服务中途挂掉时显示，可重试） */
+  #offline { display:none; position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:100;
+    background:var(--danger-bg); border:1px solid var(--danger-border); color:var(--text);
+    border-radius:10px; padding:10px 16px; font-size:13px; box-shadow:0 6px 22px rgba(0,0,0,.18);
+    max-width:min(660px,92vw); }
+  #offline.show { display:flex; align-items:center; gap:14px; }
+  #offline .txt { line-height:1.55; }
+  #offline b { display:block; color:var(--danger); }
+  #offline button { border:1px solid var(--danger-border); background:var(--btn-bg); color:var(--btn-text);
+    border-radius:7px; padding:5px 12px; font-size:12px; cursor:pointer; white-space:nowrap; }
+  #offline button:hover { color:var(--danger); border-color:var(--danger); }
 </style>
 </head>
 <body>
@@ -125,6 +137,8 @@
     </div>
   </main>
 
+  <div id="offline"><div class="txt"><b data-i18n="offline">连不上本地服务</b><span data-i18n="offlineHint"></span></div><button id="retryBtn" data-i18n="retry">重试</button></div>
+
 <script src="/readability.js"></script>
 <script>
   'use strict';
@@ -142,7 +156,8 @@
       starFailed: '收藏操作失败',
       notArticle: '这个页面暂时抽不出正文（可能不是文章型页面）', readFail: '阅读模式失败：',
       settingsTitle: '设置', theme: '外观', lang: '语言', system: '跟随系统', light: '浅色', dark: '深色',
-      from2: '来源', loading: '加载中…', saved: '已保存', exportFail: '导出失败'
+      from2: '来源', loading: '加载中…', saved: '已保存', exportFail: '导出失败',
+      offline: '连不上本地服务（127.0.0.1:8731）', offlineHint: '请确认「网页收藏」客户端正在运行，然后再试一次。', retry: '重试'
     },
     en: {
       appName: 'Web Vault', count: n => n + (n === 1 ? ' page' : ' pages'), starred: '☆ Favorites', starredOn: '★ Favorited',
@@ -155,7 +170,9 @@
       starFailed: 'Star toggle failed',
       notArticle: 'No article content found (maybe not an article page)', readFail: 'Reader mode failed: ',
       settingsTitle: 'Settings', theme: 'Appearance', lang: 'Language', system: 'System', light: 'Light', dark: 'Dark',
-      from2: 'Source', loading: 'Loading…', saved: 'Saved', exportFail: 'Export failed'
+      from2: 'Source', loading: 'Loading…', saved: 'Saved', exportFail: 'Export failed',
+      offline: 'Cannot reach the local service (127.0.0.1:8731)',
+      offlineHint: 'Make sure the Web Vault desktop app is running, then try again.', retry: 'Retry'
     }
   };
 
@@ -229,12 +246,25 @@
   let ftResults = [];
   let ftTimer = null;
 
+  function showOffline() { document.getElementById('offline').classList.add('show'); }
+  function hideOffline() { document.getElementById('offline').classList.remove('show'); }
+
   async function load() {
-    const r = await fetch('/api/pages');
-    pages = await r.json();
+    let r;
+    try {
+      r = await fetch('/api/pages');
+      pages = await r.json();
+      hideOffline();
+    } catch (e) {
+      // 本地服务没起来（客户端没开 / 端口被占后挂掉）：显示断连条，不清空已有列表之外的任何状态
+      showOffline();
+      if (!pages.length) { countEl.textContent = ''; render(''); }
+      return;
+    }
     countEl.textContent = pages.length ? t('count', pages.length) : '';
     render(searchEl.value);
   }
+  document.getElementById('retryBtn').addEventListener('click', () => load());
 
   function render(q) {
     const f = (q || '').trim().toLowerCase();
