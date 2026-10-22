@@ -26,9 +26,11 @@ chmod +x "$OUT/Contents/MacOS/网页收藏"
 # 3. Replace Info.plist
 cp "$DESKTOP/Info.plist" "$OUT/Contents/Info.plist"
 
-# 4. Install our app entry (main.js + package.json)
+# 4. Install our app entry (main.js + package.json + updater/preload)
 mkdir -p "$OUT/Contents/Resources/app"
 cp "$DESKTOP/main.js" "$OUT/Contents/Resources/app/main.js"
+cp "$DESKTOP/updater.js" "$OUT/Contents/Resources/app/updater.js"
+cp "$DESKTOP/preload.js" "$OUT/Contents/Resources/app/preload.js"
 cp "$DESKTOP/package.json" "$OUT/Contents/Resources/app/package.json"
 
 # 4b. Install our own icon (AppIcon.icns) and drop Electron's default one

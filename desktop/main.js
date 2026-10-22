@@ -5,11 +5,14 @@
 // opens a native window rendering the reader UI. The browser extension talks to the
 // same localhost:8731 endpoint, so all six ends share one protocol.
 
-const { app, BrowserWindow, nativeTheme, Menu, shell } = require('electron');
+const { app, BrowserWindow, nativeTheme, Menu, shell, ipcMain } = require('electron');
 const { fork } = require('child_process');
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
+const os = require('os');
+
+const { Updater, assetName } = require('./updater.js');
 
 // 扩展目录：随安装包分发（Mac: Contents/Resources/extension，Win: 解压目录/extension）
 function extensionDir() {
@@ -67,7 +70,11 @@ function buildMenu() {
     { label: L.edit, submenu: [ { label: L.undo, role: 'undo' }, { label: L.redo, role: 'redo' }, { type: 'separator' }, { label: L.cut, role: 'cut' }, { label: L.copy, role: 'copy' }, { label: L.paste, role: 'paste' }, { label: L.selectAll, role: 'selectAll' } ] },
     { label: L.view, submenu: [ { label: L.reload, role: 'reload' }, { label: L.forceReload, role: 'forceReload' }, { label: L.devtools, role: 'toggleDevTools' }, { type: 'separator' }, { label: L.resetZoom, role: 'resetZoom' }, { label: L.zoomIn, role: 'zoomIn' }, { label: L.zoomOut, role: 'zoomOut' }, { type: 'separator' }, { label: L.fullscreen, role: 'togglefullscreen' } ] },
     { label: L.window, submenu: [ { label: L.minimize, role: 'minimize' }, { label: L.zoomWin, role: 'zoom' }, { type: 'separator' }, { label: L.front, role: 'front' } ] },
-    { label: L.help, submenu: [ { label: L.installExt, click: installExtension } ] }
+    { label: L.help, submenu: [
+      { label: L.installExt, click: installExtension },
+      { type: 'separator' },
+      { label: zh ? '检查更新…' : 'Check for Updates…', click: checkForUpdatesFromMenu }
+    ] }
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -77,6 +84,58 @@ let serverProc = null;
 let mainWin = null;
 let quitting = false;
 let serverRestarts = 0;
+
+// ---------- 自动更新 ----------
+// 版本探测走 github.com 的 302 Location（不依赖 API）；下载多渠道测速选最快。
+const updater = new Updater({ currentVersion: app.getVersion() });
+updater.onEvent((st) => {
+  log('updater event:', st.status, st.remoteVersion || '', st.error || '');
+  if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('updater:event', st);
+});
+
+function readPref(key, dflt) {
+  try {
+    const p = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'prefs.json'), 'utf8'));
+    return p && p[key] !== undefined ? p[key] : dflt;
+  } catch { return dflt; }
+}
+
+function setupUpdaterIPC() {
+  ipcMain.handle('updater:check', async () => {
+    const tag = await updater.checkLatest();
+    return { tag, hasUpdate: !!tag };
+  });
+
+  ipcMain.handle('updater:channels', async (_e, tag) => {
+    const list = await updater.speedTest(tag, assetName(process.platform, tag));
+    return list.map(c => ({ id: c.id, name: c.name, url: c.url, bps: Math.round(c.bps / 1024), ms: c.ms }));
+  });
+
+  ipcMain.handle('updater:download', async (_e, url) => {
+    const dest = path.join(os.tmpdir(), 'pagevault-update-' + Date.now() + '.zip');
+    await updater.download(url, dest);
+    return dest;
+  });
+
+  ipcMain.handle('updater:install', async (_e, zipPath) => {
+    const r = await updater.install(zipPath, {});
+    return r;
+  });
+
+  ipcMain.handle('updater:version', () => app.getVersion());
+
+  // 启动 5 秒后自动检查一次（设置里可关：prefs.autoUpdate === false）
+  const auto = readPref('autoUpdate', true);
+  log('autoUpdate pref =', auto);
+  if (auto) {
+    setTimeout(() => { updater.checkLatest(); }, 5000);
+  }
+}
+
+function checkForUpdatesFromMenu() {
+  if (!mainWin || mainWin.isDestroyed()) return;
+  mainWin.webContents.send('updater:menu-check');
+}
 
 // 显式钉死数据目录：不随 app 显示名（网页收藏）变化，保证升级/改名不丢库。
 // （package.json 的 name 决定默认 userData；改名会换目录，这里覆盖掉。）
@@ -230,7 +289,8 @@ function createWindow(url) {
     backgroundColor: c.bg,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
     }
   };
   // 运行时图标（Windows 任务栏等；macOS 用 bundle 里的 icns，自动忽略）
@@ -274,6 +334,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     log('==== app ready ==== electron ' + process.versions.electron + ' platform ' + process.platform + ' locale ' + app.getLocale());
     buildMenu();
+    setupUpdaterIPC();
     // 先出窗口（显示"正在连接"），再去起服务：失败也看得到界面，不再是双击无反应
     mainWin = createWindow(localPage('connecting'));
     startServer((ok) => {
