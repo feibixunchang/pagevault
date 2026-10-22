@@ -28,13 +28,15 @@ fi
 # 2. Assemble our app on top of the vanilla runtime
 rm -rf "$OUT"
 mkdir -p "$OUT/resources/app"
-cp "$UNPACK"/*.dll "$UNPACK"/*.pak "$OUT/" 2>/dev/null || true
+# 关键：必须整棵树复制，不能只 glob *.dll *.pak！
+# icudtl.dat（ICU 数据）、snapshot_blob.bin / v8_context_snapshot.bin（V8 快照）
+# 都不是 dll/pak 后缀，漏掉它们 Chromium 子进程起不来，表现为：
+#   [ERROR:icu_util.cc] Invalid file descriptor to ICU data received.
+#   双击后无窗口/闪退。
+# rsync 而非 cp：沙箱文件 broker 会间歇性拦截 cp/rename 某些文件
+# （default_app.asar 尤甚，macOS 构建踩过同样的坑）。
+rsync -a --exclude='electron.exe' "$UNPACK/" "$OUT/"
 cp "$UNPACK/electron.exe" "$OUT/WebVault.exe"
-# NOTE: rsync (not cp) for default_app.asar — the sandbox file broker intermittently
-# blocks cp/rename of that file (same issue as the macOS build).
-[ -f "$UNPACK/resources/default_app.asar" ] && rsync -a "$UNPACK/resources/default_app.asar" "$OUT/resources/"
-[ -d "$UNPACK/locales" ] && cp -r "$UNPACK/locales" "$OUT/"
-[ -f "$UNPACK/resources/electron.asar" ] && rsync -a "$UNPACK/resources/electron.asar" "$OUT/resources/"
 
 # 3. Our app entry + bundled sync server + icon
 cp "$DESKTOP/main.js" "$OUT/resources/app/main.js"
@@ -50,6 +52,9 @@ cat >> "$OUT/README.txt" <<'EOF'
 
 一、启动
   1. 把 WebVault-win32-x64.zip 解压到任意目录（建议纯英文路径，如 D:\WebVault）。
+     注意：不要在资源管理器的 zip 预览窗口里直接双击 exe——
+     必须"解压全部"到文件夹后再运行，否则程序必需的伴生文件
+     （icudtl.dat、*.pak、locales 等）不在同目录，会报 ICU 错误且无窗口。
   2. 双击 WebVault.exe。
   3. 首次运行 Windows SmartScreen 可能提示"Windows 已保护你的电脑"（未知发布者）：
      点"更多信息" -> "仍要运行"即可，只弹一次。
