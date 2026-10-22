@@ -16,3 +16,6 @@ data/
 .DS_Store
 *.log
 nohup.out
+
+# 例外：vendor 的 resedit/pe-library 必须入库（构建 Windows 图标嵌入用）
+!desktop/vendor/node_modules/

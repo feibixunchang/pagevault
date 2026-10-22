@@ -5,11 +5,29 @@
 // opens a native window rendering the reader UI. The browser extension talks to the
 // same localhost:8731 endpoint, so all six ends share one protocol.
 
-const { app, BrowserWindow, nativeTheme, Menu } = require('electron');
+const { app, BrowserWindow, nativeTheme, Menu, shell } = require('electron');
 const { fork } = require('child_process');
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
+
+// 扩展目录：随安装包分发（Mac: Contents/Resources/extension，Win: 解压目录/extension）
+function extensionDir() {
+  const packed = path.join(process.resourcesPath, 'extension');
+  const dev = path.join(__dirname, '..', '..', 'extension');
+  for (const d of [packed, dev]) {
+    try { if (fs.existsSync(path.join(d, 'manifest.json'))) return d; } catch { /* 试下一个 */ }
+  }
+  return null;
+}
+
+// 打开扩展管理页 + 在访达/资源管理器里定位扩展文件夹（加载已解压的扩展程序时选它）
+function installExtension() {
+  const dir = extensionDir();
+  log('install-extension clicked, dir =', dir || '(not found)');
+  try { shell.openExternal('chrome://extensions/'); } catch (e) { log('openExternal chrome:// failed:', e && e.message); }
+  if (dir) shell.showItemInFolder(dir);
+}
 
 // 本地化应用菜单（跟随系统语言；设置里选的语言下次启动生效——启动时读 prefs.json）
 function buildMenu() {
@@ -22,30 +40,34 @@ function buildMenu() {
     }
   } catch { /* 读不到用系统语言 */ }
   const zh = langPref === 'zh' || (langPref === 'system' && app.getLocale().toLowerCase().startsWith('zh'));
+  const appName = zh ? '网页收藏' : 'Web Vault';
   const L = zh ? {
-    app: '网页收藏', about: '关于网页收藏', quit: '退出网页收藏',
+    app: appName, about: '关于' + appName, quit: '退出' + appName,
     file: '文件', close: '关闭窗口',
     edit: '编辑', undo: '撤销', redo: '重做', cut: '剪切', copy: '复制', paste: '粘贴', selectAll: '全选',
     view: '显示', reload: '重新加载', forceReload: '强制重新加载', devtools: '开发者工具',
     resetZoom: '实际大小', zoomIn: '放大', zoomOut: '缩小', fullscreen: '全屏',
     window: '窗口', minimize: '最小化', zoomWin: '缩放', front: '全部置于顶层',
-    help: '帮助'
+    help: '帮助', installExt: '安装浏览器扩展…',
+    // macOS 系统菜单项：role 的默认标签是英文，中文系统下显式覆盖
+    services: '服务', hide: '隐藏' + appName, hideOthers: '隐藏其他', unhide: '全部显示'
   } : {
-    app: 'Web Vault', about: 'About Web Vault', quit: 'Quit Web Vault',
+    app: appName, about: 'About ' + appName, quit: 'Quit ' + appName,
     file: 'File', close: 'Close Window',
     edit: 'Edit', undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select All',
     view: 'View', reload: 'Reload', forceReload: 'Force Reload', devtools: 'Developer Tools',
     resetZoom: 'Actual Size', zoomIn: 'Zoom In', zoomOut: 'Zoom Out', fullscreen: 'Toggle Fullscreen',
     window: 'Window', minimize: 'Minimize', zoomWin: 'Zoom', front: 'Bring All to Front',
-    help: 'Help'
+    help: 'Help', installExt: 'Install Browser Extension…',
+    services: 'Services', hide: 'Hide ' + appName, hideOthers: 'Hide Others', unhide: 'Show All'
   };
   const template = [
-    { label: L.app, submenu: [ { label: L.about, role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { label: L.quit, role: 'quit' } ] },
+    { label: L.app, submenu: [ { label: L.about, role: 'about' }, { type: 'separator' }, { label: L.services, role: 'services' }, { type: 'separator' }, { label: L.hide, role: 'hide' }, { label: L.hideOthers, role: 'hideOthers' }, { label: L.unhide, role: 'unhide' }, { type: 'separator' }, { label: L.quit, role: 'quit' } ] },
     { label: L.file, submenu: [ { label: L.close, role: 'close' } ] },
     { label: L.edit, submenu: [ { label: L.undo, role: 'undo' }, { label: L.redo, role: 'redo' }, { type: 'separator' }, { label: L.cut, role: 'cut' }, { label: L.copy, role: 'copy' }, { label: L.paste, role: 'paste' }, { label: L.selectAll, role: 'selectAll' } ] },
     { label: L.view, submenu: [ { label: L.reload, role: 'reload' }, { label: L.forceReload, role: 'forceReload' }, { label: L.devtools, role: 'toggleDevTools' }, { type: 'separator' }, { label: L.resetZoom, role: 'resetZoom' }, { label: L.zoomIn, role: 'zoomIn' }, { label: L.zoomOut, role: 'zoomOut' }, { type: 'separator' }, { label: L.fullscreen, role: 'togglefullscreen' } ] },
     { label: L.window, submenu: [ { label: L.minimize, role: 'minimize' }, { label: L.zoomWin, role: 'zoom' }, { type: 'separator' }, { label: L.front, role: 'front' } ] },
-    { label: L.help, submenu: [] }
+    { label: L.help, submenu: [ { label: L.installExt, click: installExtension } ] }
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -211,11 +233,22 @@ function createWindow(url) {
       contextIsolation: true
     }
   };
+  // 运行时图标（Windows 任务栏等；macOS 用 bundle 里的 icns，自动忽略）
+  for (const ic of [path.join(process.resourcesPath, 'AppIcon.ico'), path.join(__dirname, '..', 'AppIcon.ico')]) {
+    try { if (fs.existsSync(ic)) { opts.icon = ic; break; } } catch { /* 忽略 */ }
+  }
   if (process.platform === 'win32') {
     opts.titleBarOverlay = { color: c.panel, symbolColor: c.text, height: 36 };
   }
   const win = new BrowserWindow(opts);
   win.loadURL(url || `http://127.0.0.1:${PORT}/`);
+  // 页面里点 chrome://extensions、http(s) 等链接 → 转交系统浏览器打开，不在 app 内开新窗
+  win.webContents.setWindowOpenHandler(({ url: u }) => {
+    try {
+      if (/^(chrome|edge|brave|vivaldi|opera|about|https?):/i.test(u)) shell.openExternal(u);
+    } catch (e) { log('openExternal failed:', e && e.message); }
+    return { action: 'deny' };
+  });
   win.on('closed', () => {});
   return win;
 }

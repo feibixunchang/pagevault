@@ -27,25 +27,35 @@
 pagevault/
 ├── server/              # 同步服务端（也是未来 Docker 端）
 │   ├── server.js         # 零依赖 Node 服务：保存/列表/单页/删除/收藏/全文搜索 + SSE 实时推送
-│   ├── public/index.html # 阅读器 UI
+│   ├── sync.js           # WebDAV 多端同步引擎（拉取/合并/推送/删除传播/孤儿自愈）
+│   ├── webdav.js         # 极简 WebDAV 客户端（PROPFIND/GET/PUT/DELETE/MKCOL）
+│   ├── zip.js            # store 模式 zip 读写（整库备份导出/导入）
+│   ├── public/index.html # 阅读器 UI（含底部状态栏/设置面板/安装引导）
 │   ├── public/readability.js # Mozilla Readability（阅读模式抽取正文）
 │   ├── Dockerfile         # 自托管镜像
 │   └── docker-compose.yml
-├── extension/           # Chrome/Edge MV3 扩展（v0.4，基于 SingleFile）
+├── extension/           # Chrome/Edge MV3 扩展（v0.6，基于 SingleFile + 心跳）
 │   ├── manifest.json
 │   ├── popup.html / popup.js
+│   ├── background.js     # 跨域抓图内联 + 每分钟心跳（状态栏"扩展已连接"）
 │   ├── lib/single-file.js # SingleFile 官方 standalone 库（高保真捕获，自包含）
 │   └── README.md
 ├── desktop/             # 桌面端（Electron；macOS + Windows 同一工程）
-│   ├── main.js           # 启动内置同步服务端 + 原生窗口
+│   ├── main.js           # 启动内置同步服务端 + 原生窗口 + 本地化菜单 + 安装扩展引导
 │   ├── build-app.sh      # macOS：组装并 ad-hoc 签名 → dist/网页收藏.app
 │   ├── build-win.sh      # Windows：跨平台组装 → dist/WebVault-win32-x64(+zip)
-│   ├── make_icon.py      # 生成 AppIcon.icns（macOS 图标）
-│   ├── make_icon_ico.py  # 生成 AppIcon.ico（Windows 图标）
+│   ├── set-win-icon.mjs  # 把 AppIcon.ico 嵌进 exe 资源（与 Mac 图标完全一致）
+│   ├── make_icon.py      # 生成图标母版 + AppIcon.icns（macOS 图标）
+│   ├── make_icon_ico.py  # 由同一母版生成 AppIcon.ico（Windows 图标）
+│   ├── vendor/node_modules/  # resedit + pe-library（嵌图标用，MIT）
 │   └── dist/
 ├── load-extension.sh     # 扩展加载辅助（复制路径 + 打开扩展管理页）
 └── run-mac.sh            # 一键在 Mac 上启动（纯服务端模式）
 ```
+
+> **图标统一**：所有端（Mac / Windows / Linux…）都用 `make_icon.py` 生成的同一母版——
+> macOS 用 `AppIcon.icns`，Windows 通过 `set-win-icon.mjs` 把 `AppIcon.ico` **嵌进 exe 资源**
+> （只放一个 .ico 文件在旁边对资源管理器无效），已逐像素校验一致。
 
 ## Windows 端
 
@@ -55,20 +65,40 @@ pagevault/
 cd desktop && bash build-win.sh
 ```
 
-产物 `desktop/dist/WebVault-win32-x64.zip`（约 100MB，包内纯英文文件名，避免解压乱码），
-拷到 Windows 解压即用（包内 `README.txt` 有完整步骤）：
+产物 `desktop/dist/WebVault-win32-x64.zip`（约 106MB，包内纯英文文件名，避免解压乱码），
+拷到 Windows **完整解压**即用（包内 `README.txt` 有完整步骤）：
 
-1. 解压到任意目录（建议纯英文路径，如 `D:\WebVault`）
+1. 解压到任意目录（建议纯英文路径，如 `D:\WebVault`）——不要在 zip 预览窗口里直接双击 exe
 2. 双击 `WebVault.exe`。未买代码签名，SmartScreen 会提示"未知发布者"→「更多信息」→「仍要运行」
 3. 数据存 `%APPDATA%\pagevault-desktop`，端口 8731，与 Mac 版协议完全一致
-4. Chrome/Edge 加载 `pagevault/extension` 扩展，两端可往同一个库保存/查看
+4. **浏览器扩展已随安装包分发**：解压目录下的 `extension/` 文件夹就是扩展，
+   在 `chrome://extensions` 开开发者模式 →「加载已解压的扩展程序」→ 选它即可；
+   也可以在阅读器里点底部状态栏的「安装扩展」按弹窗步骤操作
+5. Windows 版图标已嵌进 exe，与 Mac 版完全一致
 
 **双击打不开？** 按 Release 说明里的排查清单：SmartScreen「更多信息→仍要运行」→
 右键 exe 属性「解除锁定」→ 临时退出杀毒软件 → 看 `%APPDATA%\pagevault-desktop\desktop.log`
 → PowerShell 里 `.\WebVault.exe` 直跑看报错。启动失败时窗口会显示带日志路径的错误页，不会闪退。
 
-> Windows 与 Mac 数据互通的正确姿势：任一端开服务端，另一端把"服务地址"指向它
-> （扩展 popup 里可改服务地址，如 `http://192.168.x.x:8731`），即实现真正的双端同步。
+## 账号与多端同步（WebDAV）
+
+阅读器右下角 ⚙ 设置 →「账号与同步」：
+
+- 填入你自己的 **WebDAV**（坚果云 / Nextcloud / 群晖 / 自建 Apache 都行）——服务器地址、账号、
+  密码（坚果云用"应用密码"）、同步目录、同步间隔（关闭/10 秒/30 秒/1 分钟）
+- **同一套 WebDAV 账号 = 同一个"网页收藏"账号**：多台电脑（Mac/Windows/Linux）登录后，
+  收藏会自动互相同步——本地保存/删除立即推送，其余变更按间隔轮询拉取
+- 数据只存在于你自己的网盘，服务端不接触任何账号信息
+- 同步细节：页面按 id 去重合并；收藏冲突按时间戳取新；删除通过 tombstone 传播；
+  即使远端 index.json 丢失，也能从页面文件头的元数据注释自愈恢复
+- 底部状态栏实时显示同步状态（同步中 / 已同步 HH:MM / 失败原因）
+
+## 备份（导出 / 导入）
+
+设置面板 →「备份」：
+
+- **导出备份 (.zip)**：整库（索引 + 全部页面）打包下载，换电脑/重装前先来一份
+- **导入备份**：上传之前导出的 zip，按页面 id 合并进当前库（不覆盖已有页面）
 
 ## 在 Mac 上运行（MVP）
 
