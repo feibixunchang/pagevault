@@ -1,0 +1,55 @@
+name: PageVault
+options:
+  bundleIdPrefix: com.feibixunchang
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    MARKETING_VERSION: "1.1.0"
+    CURRENT_PROJECT_VERSION: "10100"
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  PageVault:
+    type: application
+    platform: iOS
+    sources:
+      - path: PageVault
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.feibixunchang.pagevault
+        PRODUCT_NAME: PageVault
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+    info:
+      path: PageVault/Info.plist
+      properties:
+        CFBundleDisplayName: 网页收藏
+        CFBundleName: PageVault
+        CFBundleDevelopmentRegion: zh_CN
+        # 跟随 build setting，别写死，否则每次发版都会忘记改
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: ""
+        UIApplicationSupportsIndirectInputEvents: true
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # 自托管服务端通常是局域网 http，ATS 得放开
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        # iOS 14+ 访问局域网地址会弹权限，这句是弹窗里的说明
+        NSLocalNetworkUsageDescription: 需要访问局域网，才能连接你自己电脑或 NAS 上的网页收藏服务端。

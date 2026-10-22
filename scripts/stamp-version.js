@@ -92,6 +92,27 @@ for (const t of textTargets) {
   }
 }
 
+// 5) iOS 工程（ios/project.yml）。CFBundleVersion 用 x.y.z 压成的整数，必须单调递增
+const IOS_SPEC = path.join(ROOT, 'ios', 'project.yml');
+if (fs.existsSync(IOS_SPEC)) {
+  let ios = fs.readFileSync(IOS_SPEC, 'utf8');
+  const original = ios;
+  const nums = version.split('.').map(n => parseInt(n, 10));
+  const buildNo = String(nums[0] * 10000 + nums[1] * 100 + nums[2]);
+
+  const curM = (ios.match(/MARKETING_VERSION:\s*"?([\d.]+)"?/) || [])[1];
+  if (curM !== version) {
+    problems.push('ios/project.yml MARKETING_VERSION ' + curM + ' → ' + version);
+    ios = ios.replace(/(MARKETING_VERSION:\s*)"?[\d.]+"?/, '$1"' + version + '"');
+  }
+  const curB = (ios.match(/CURRENT_PROJECT_VERSION:\s*"?(\d+)"?/) || [])[1];
+  if (curB !== buildNo) {
+    problems.push('ios/project.yml CURRENT_PROJECT_VERSION ' + curB + ' → ' + buildNo);
+    ios = ios.replace(/(CURRENT_PROJECT_VERSION:\s*)"?\d+"?/, '$1"' + buildNo + '"');
+  }
+  if (!checkOnly && ios !== original) fs.writeFileSync(IOS_SPEC, ios);
+}
+
 if (problems.length === 0) {
   console.log('[stamp-version] 全部一致：v' + version);
   process.exit(0);
