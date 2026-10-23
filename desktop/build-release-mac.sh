@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# 产出 macOS 发布件：
-#   1) 网页收藏-macos-x64.zip —— 顶层就是 网页收藏.app（自动更新下载后直接解压替换）
-#   2) WebVault-macos-x64.dmg —— 给人下载：双击拖到 Applications 即用
+# 产出 macOS 发布件（文件名一律带版本号，用户下载下来一眼能认出是哪个版本）：
+#   1) WebVault-<版本>-macos-x64.zip —— 顶层就是 网页收藏.app（自动更新下载后直接解压替换）
+#   2) WebVault-<版本>-macos-x64.dmg —— 给人下载：双击拖到 Applications 即用
 #      注意：dmg/zip 的**文件名必须全 ASCII**。GitHub Releases 上传时会把非 ASCII
-#      字符整段剥掉（"网页收藏-macos-x64.dmg" 变成 "-macos-x64.dmg"，且以 - 开头还会
-#      被 gh CLI 当成命令行参数，只能用 REST API 删）。app 包内部名保持中文没问题。
+#      字符整段剥掉（"网页收藏-1.4.0-macos-x64.dmg" 变成 "-1.4.0-macos-x64.dmg"，且以 -
+#      开头还会被 gh CLI 当成命令行参数，只能用 REST API 删）。app 包内部名保持中文没问题。
 # 依赖 build-app.sh 先构建出 dist/网页收藏.app
 set -e
 
 ROOT=/Users/lovenasuserlove/WorkBuddy/2026-10-22-13-27-54/pagevault
 DESKTOP=$ROOT/desktop
 APP=$DESKTOP/dist/网页收藏.app
-ZIP=$DESKTOP/dist/pagevault-macos-x64.zip
-DMG=$DESKTOP/dist/WebVault-macos-x64.dmg
+VER=$(node -p "require('$DESKTOP/package.json').version")
+ZIP=$DESKTOP/dist/WebVault-$VER-macos-x64.zip
+DMG=$DESKTOP/dist/WebVault-$VER-macos-x64.dmg
 
 [ -d "$APP" ] || { echo "先跑 build-app.sh 生成 .app"; exit 1; }
 
@@ -56,7 +57,8 @@ trap 'rm -rf "$STAGE"' EXIT
 rsync -a "$APP/" "$STAGE/网页收藏.app/"
 ln -s /Applications "$STAGE/Applications"
 rm -f "$DMG"
-hdiutil create -volname "网页收藏" -srcfolder "$STAGE" -ov -format UDZO "$DMG" -quiet
+# 卷名也带版本号：挂载后窗口标题就能看出是哪个版本
+hdiutil create -volname "网页收藏 $VER" -srcfolder "$STAGE" -ov -format UDZO "$DMG" -quiet
 
 ls -la "$ZIP" "$DMG"
 echo ""

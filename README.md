@@ -4,8 +4,12 @@
 
 一个**六端同步**的"整页网页收藏"工具：在浏览器里点一下扩展，就把当前页面**完整**保存下来，落到本地同步库，之后随时离线回看，像本地浏览一样。每条记录都带**来源平台**和**保存时间**。
 
-当前版本：**v1.2.0**。已实现五端：浏览器扩展 + Mac 桌面端 + Windows 桌面端 + Docker 自托管端（飞牛 NAS 实测运行）+ iOS 端（自签真机）。
-下一步：Linux / Android。
+当前版本：**v1.4.0**。已实现六端：浏览器扩展 + Mac 桌面端 + Windows 桌面端 + **Linux 桌面端（deb / rpm / AppImage / 便携包）** + Docker 自托管端（飞牛 NAS 实测运行）+ iOS 端（自签真机）。
+下一步：Android。
+
+> **安装包命名规则**（v1.4.0 起）：所有发布件都带版本号，形如
+> `WebVault-1.4.0-macos-x64.dmg`、`WebVault-1.4.0-win32-x64.zip`、
+> `WebVault-1.4.0-linux-x64.deb`。下载多个版本放在一起也不会搞混。
 
 ## 架构
 
@@ -43,15 +47,23 @@ pagevault/
 │   ├── background.js     # 跨域抓图内联 + 30 秒心跳（浏览器有活动时立即补发）
 │   ├── lib/single-file.js # SingleFile 官方 standalone 库（高保真捕获，自包含）
 │   └── README.md
-├── desktop/             # 桌面端（Electron；macOS + Windows 同一工程）
+├── desktop/             # 桌面端（Electron；macOS / Windows / Linux 同一套代码）
 │   ├── main.js           # 启动内置同步服务端 + 原生窗口 + 本地化菜单 + 安装扩展引导
+│   ├── updater.js         # 自动更新：版本探测 + 多渠道测速 + 就地升级（三平台）
 │   ├── build-app.sh      # macOS：组装并 ad-hoc 签名 → dist/网页收藏.app
 │   ├── build-win.sh      # Windows：跨平台组装 → dist/WebVault-win32-x64(+zip)
+│   ├── build-linux.sh    # Linux：组装 → tar.gz / deb（+ rpm/AppImage，需原生工具）
+│   ├── linux-icons/      # 由同一母版导出的 Linux 多尺寸 png（16…512）
 │   ├── set-win-icon.mjs  # 把 AppIcon.ico 嵌进 exe 资源（与 Mac 图标完全一致）
 │   ├── make_icon.py      # 生成图标母版 + AppIcon.icns（macOS 图标）
 │   ├── make_icon_ico.py  # 由同一母版生成 AppIcon.ico（Windows 图标）
 │   ├── vendor/node_modules/  # resedit + pe-library（嵌图标用，MIT）
 │   └── dist/
+├── scripts/
+│   ├── stamp-version.js  # 版本号单一来源 → 同步到 9 处（含 Xcode 工程）
+│   └── mkdeb.py          # 纯 Python 生成 .deb（macOS 无 dpkg-deb 时的兜底）
+├── .github/workflows/
+│   └── build-linux.yml   # Ubuntu runner 生成 rpm/AppImage 并校验 deb、上传 release
 ├── ios/                 # iOS 端（SwiftUI 原生壳 + WKWebView 阅读页 + 本地缓存）
 │   ├── project.yml       # XcodeGen 工程定义（版本号由 stamp-version.js 统一写）
 │   ├── PageVault.xcodeproj/  # 可直接打开运行（自签装真机）
@@ -72,7 +84,7 @@ pagevault/
 cd desktop && bash build-win.sh
 ```
 
-产物 `desktop/dist/WebVault-win32-x64.zip`（约 106MB，包内纯英文文件名，避免解压乱码），
+产物 `desktop/dist/WebVault-<版本>-win32-x64.zip`（约 106MB，包内纯英文文件名，避免解压乱码），
 拷到 Windows **完整解压**后使用（包内 `README.txt` 有完整步骤）：
 
 1. 解压到任意目录（建议纯英文路径，如 `D:\WebVault`）——不要在 zip 预览窗口里直接双击 exe
@@ -91,6 +103,36 @@ cd desktop && bash build-win.sh
 右键 exe 属性「解除锁定」→ 临时退出杀毒软件 → 看 `%APPDATA%\pagevault-desktop\desktop.log`
 → PowerShell 里 `.\WebVault.exe` 直跑看报错。启动失败时窗口会显示带日志路径的错误页，不会闪退。
 
+## Linux 端
+
+原生安装包为主，不是网页套壳：装到 `/opt/WebVault`，注册应用菜单入口和 hicolor 图标，
+`/usr/bin/webvault` 可直接在终端启动，卸载走发行版包管理器（`apt remove webvault`）。
+
+```bash
+cd desktop && bash build-linux.sh
+```
+
+产出（文件名都带版本号）：
+
+| 文件 | 适用 | 说明 |
+|---|---|---|
+| `WebVault-<ver>-linux-x64.deb` | Debian / Ubuntu / Deepin / UOS / 麒麟 | `sudo apt install ./xxx.deb` |
+| `WebVault-<ver>-linux-x86_64.rpm` | Fedora / RHEL / CentOS / openEuler | `sudo dnf install ./xxx.rpm` |
+| `WebVault-<ver>-linux-x86_64.AppImage` | 任意发行版 | 免安装，`chmod +x` 后双击 |
+| `WebVault-<ver>-linux-x64.tar.gz` | 任意发行版 | 便携包，解压后 `./webvault.sh` |
+
+几点实现上的取舍：
+
+- **谁能在哪打**：macOS 上能出 `tar.gz` + `deb`（deb 由 `scripts/mkdeb.py` 纯 Python 生成，
+  因为 Homebrew 的 dpkg 在这台机器的沙箱里装不上）；`rpm` / `AppImage` 必须有原生工具，
+  交给 `.github/workflows/build-linux.yml` 在 Ubuntu runner 上产出，顺带**真装一遍 deb** 验证。
+- **chrome-sandbox 必须 setuid**：Electron 的 Chromium 沙箱要求这个文件属主 root、权限 4755，
+  否则启动直接报 `SUID sandbox helper binary was found, but is not configured correctly`。
+  macOS 上 `chmod 4755` 会**静默失败**（沙箱限制），所以 `mkdeb.py` 直接把权限写进 tar 头。
+- **便携包不设 setuid**：解压出来的目录没有 root，`webvault.sh` 检测到不是 setuid 就
+  自动加 `--no-sandbox`（不少发行版禁了 user namespace，这样做最省事）。
+- **数据目录**：`~/.config/pagevault-desktop`，与 mac/win 的协议完全一致，端口 8731。
+
 ## 自动更新
 
 - 桌面端**启动 4 秒后自动检查** GitHub 最新版；失败会重试三次（刚开机网络没起来时常失败一次），
@@ -104,24 +146,39 @@ cd desktop && bash build-win.sh
   不会另装一份让你有两个版本
 - 安装完成后**主动退出旧进程**再拉起新版本——否则 macOS 的 `open` 只会激活旧进程，
   看起来像"点了更新没反应"
-- macOS：解压替换 `.app`（旧版自动备份成 `.bak-时间戳`）；Windows：解压后 robocopy 覆盖再启动
+- macOS：解压替换 `.app`（旧版自动备份成 `.bak-时间戳`）；Windows：解压后 robocopy 覆盖再启动；
+  Linux：解压 `tar.gz` 后整目录替换（同样留 `.old-时间戳` 备份）
+- **资产名兼容**：v1.4.0 起发布件统一带版本号（`WebVault-1.4.0-macos-x64.zip`）。
+  新版更新器先按带版本号的名字找，探测不到再退回老名字（`pagevault-macos-x64.zip`），
+  所以还停留在 1.3.0 及更早版本的客户端不会卡住升不上来
+- **Linux 的自动更新只对便携包生效**：装在 `/opt/WebVault` 时目录属主是 root，
+  普通用户写不进去，此时会明确提示用 `sudo apt install ./WebVault-<版本>-linux-x64.deb` 升级，
+  而不是假装成功
 - 版本探测走 `github.com/.../releases/latest` 的 302 重定向（不依赖 API，国内网络更稳）；
   网络请求在 Node 原生失败时自动降级 curl 子进程（企业代理环境也能用）；
   解析同样走 DNS 兜底（DoH），系统 DNS 坏了也能检查更新
 
 > **从 v0.6.x 升到 v1.x 需要手动装一次**：那会儿的版本还没有现在这套提示逻辑（也没弹窗），
 > 自动检查失败时是完全静默的，所以你只会看到"没有提示"。
-> 下载 v1.2.0 的 Windows zip 解压覆盖一次，之后再更新就都能自己弹了。
+> 下载最新的 Windows zip 解压覆盖一次，之后再更新就都能自己弹了。
 >
 > iOS 端**不支持自动更新**（自签名 App 没有应用商店通道）。
 > 版本号在 设置 → 关于 里能看；要升级就在 Xcode 里重新 ⌘R 一次。
 
 ## 版本号（单一来源）
 
-`desktop/package.json` 的 `version` 是唯一真源，构建前自动同步到：
+`desktop/package.json` 的 `version` 是唯一真源，构建前自动同步到 9 处：
 
 - `server/server.js` 的 `VERSION`（随 `/api/status` 下发给阅读器）
 - `server/package.json`、`extension/manifest.json`
+- `server/Dockerfile` 的 OCI 版本标签、两份 `docker-compose.yml` 的镜像 tag
+- `ios/project.yml` 的 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`（后者把 `x.y.z` 压成 `xyyzz`，
+  1.4.0 → 10400，App Store 要求单调递增）
+- **`ios/PageVault.xcodeproj/project.pbxproj`**：`project.yml` 只在 xcodegen 重新生成时生效，
+  日常构建直接用现成的 pbxproj —— 不同步这里，装到手机的版本号会永远是旧的
+
+所有发布件文件名也带版本号（`WebVault-<ver>-<平台>-<架构>.<ext>`），由各构建脚本从
+`package.json` 读出来拼，不需要手改。
 
 界面上可见版本号的位置：**窗口标题栏**（网页收藏 · 我的网页库 v0.6.1）、
 **底部状态栏右侧**、**设置 → 关于与更新**、**浏览器扩展 popup 底部**（扩展版本 + 阅读器版本）。

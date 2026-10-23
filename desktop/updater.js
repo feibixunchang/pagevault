@@ -119,11 +119,18 @@ async function httpGetStream(url, headers, timeoutMs) {
   });
 }
 
-// 各平台随 Release 分发的文件名
+// 各平台随 Release 分发的文件名。v1.4.0 起统一带版本号（用户下载下来一眼能看出是哪个版本）。
+// 老版本（<=1.3.0）的更新器只会拼不带版本号的名字，所以这里返回**候选列表**：
+// 先试新名字，探测不到再退回旧名字，避免老客户端卡在旧版升不上来。
+function assetNames(platform, version) {
+  const v = String(version || '').replace(/^v/, '');
+  if (platform === 'win32') return [`WebVault-${v}-win32-x64.zip`, 'WebVault-win32-x64.zip'];
+  if (platform === 'darwin') return [`WebVault-${v}-macos-x64.zip`, 'pagevault-macos-x64.zip'];
+  return [`WebVault-${v}-linux-x64.tar.gz`, 'WebVault-linux-x64.tar.gz'];
+}
+
 function assetName(platform, version) {
-  if (platform === 'win32') return `WebVault-win32-x64.zip`;
-  if (platform === 'darwin') return `pagevault-macos-x64.zip`;
-  return `WebVault-linux-x64.zip`;
+  return assetNames(platform, version)[0];
 }
 
 // 下载渠道（按 id 去重后并发测速，取最快）。镜像类渠道只是给官方 URL 套前缀，
@@ -194,12 +201,19 @@ class Updater {
   }
 
   // ---------- 渠道测速：Range 拉前 128KB，算带宽 ----------
-  async speedTest(tag, file) {
-    const urls = channelUrls(tag, file);
-    const RANGE_BYTES = 128 * 1024;
-    const results = await Promise.all(urls.map(u => this._probe(u, RANGE_BYTES)));
-    const ok = results.filter(r => r.ok).sort((a, b) => b.bps - a.bps);
-    this.emit({ status: 'available', remoteVersion: tag, channels: ok, error: ok.length ? '' : '所有下载渠道都连不上' });
+  // files 可以是单个文件名，也可以是候选名数组（新命名 → 旧命名依次探测）
+  async speedTest(tag, files) {
+    const candidates = Array.isArray(files) ? files : [files];
+    let ok = [];
+    let used = candidates[0];
+    for (const file of candidates) {
+      const urls = channelUrls(tag, file);
+      const RANGE_BYTES = 128 * 1024;
+      const results = await Promise.all(urls.map(u => this._probe(u, RANGE_BYTES)));
+      ok = results.filter(r => r.ok).sort((a, b) => b.bps - a.bps);
+      if (ok.length) { used = file; break; }
+    }
+    this.emit({ status: 'available', remoteVersion: tag, asset: used, channels: ok, error: ok.length ? '' : '所有下载渠道都连不上' });
     return ok;
   }
 
@@ -296,6 +310,45 @@ class Updater {
       this.emit({ status: 'ready', installedTo: target });
       return { target };
     }
+    if (this.platform === 'linux') {
+      // 解压 tar.gz，再整目录覆盖。注意两种安装形态：
+      //   a) deb/rpm 装到 /opt/WebVault（属主 root）→ 普通用户写不进去，必须交给包管理器
+      //   b) 用户自己解压到 ~/WebVault → 可以就地替换
+      // 不做 pkexec 提权（无桌面 polkit 代理时直接静默失败，体验更差），
+      // 而是明确告诉用户该跑哪条命令。
+      const target = opts.targetDir || path.dirname(process.execPath);
+      try {
+        fs.accessSync(target, fs.constants.W_OK);
+      } catch {
+        throw new Error('当前安装位置需要管理员权限，请用包管理器升级：sudo apt install ./WebVault-' +
+          (this.state.remoteVersion || '').replace(/^v/, '') + '-linux-x64.deb');
+      }
+      const unpack = path.join(tmp, 'unpacked');
+      fs.mkdirSync(unpack, { recursive: true });
+      await this._run('tar', ['-xzf', zipPath, '-C', unpack]);
+      const inner = fs.readdirSync(unpack).find(n => {
+        try { return fs.statSync(path.join(unpack, n)).isDirectory(); } catch { return false; }
+      });
+      if (!inner) throw new Error('安装包内容异常');
+      const src = path.join(unpack, inner);
+      if (!fs.existsSync(path.join(src, 'webvault'))) throw new Error('安装包内没有 webvault 可执行文件');
+      // tar -xzf 到同一父目录再整体替换，避免边删边写导致进程正在用的 .so 消失
+      const stage = target + '.new-' + Date.now();
+      await this._run('cp', ['-a', src + '/.', stage]);
+      const old = target + '.old-' + Date.now();
+      fs.renameSync(target, old);
+      try {
+        fs.renameSync(stage, target);
+      } catch (e) {
+        fs.renameSync(old, target);          // 回滚
+        throw e;
+      }
+      const exe = path.join(target, 'webvault');
+      const child = spawn('/bin/sh', ['-c', `sleep 2; "${exe}" >/dev/null 2>&1 &`], { detached: true, stdio: 'ignore' });
+      child.unref();
+      this.emit({ status: 'ready', installedTo: target });
+      return { target, backup: old };
+    }
     throw new Error('暂不支持该平台的自动安装：' + this.platform);
   }
 
@@ -309,4 +362,4 @@ class Updater {
   }
 }
 
-module.exports = { Updater, isNewer, parseVersion, channelUrls, assetName, CHANNELS, REPO };
+module.exports = { Updater, isNewer, parseVersion, channelUrls, assetName, assetNames, CHANNELS, REPO };
