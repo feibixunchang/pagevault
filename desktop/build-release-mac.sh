@@ -8,7 +8,7 @@
 # 依赖 build-app.sh 先构建出 dist/网页收藏.app
 set -e
 
-ROOT=/Users/lovenasuserlove/WorkBuddy/2026-10-22-13-27-54/pagevault
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DESKTOP=$ROOT/desktop
 APP=$DESKTOP/dist/网页收藏.app
 VER=$(node -p "require('$DESKTOP/package.json').version")
@@ -21,7 +21,7 @@ DMG=$DESKTOP/dist/WebVault-$VER-macos-x64.dmg
 #    必须用 Python 打：macOS 自带 zip 命令会把中文名写成非 UTF-8 字节且不打标志位，
 #    Windows 资源管理器/部分解压工具会得到乱码文件名（Windows 端踩过同样的坑）。
 rm -f "$ZIP"
-/Users/lovenasuserlove/.workbuddy/binaries/python/versions/3.13.12/bin/python3 - "$APP" "$ZIP" <<'PYEOF'
+$(command -v python3) - "$APP" "$ZIP" <<'PYEOF'
 import os, sys, zipfile
 src, out = sys.argv[1], sys.argv[2]
 base = os.path.dirname(os.path.abspath(src))  # dist/ 目录：zip 内条目相对它 → 顶层是 网页收藏.app/

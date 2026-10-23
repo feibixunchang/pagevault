@@ -313,11 +313,11 @@ docker compose up -d --build
 
 ### 飞牛 NAS（fnOS）步骤
 
-1. 在 NAS 上准备目录（`/your/nas/path` 是飞牛默认用户目录，按实际改）：
+1. 在 NAS 上准备目录（下面的路径按你自己的 NAS 实际情况改）：
 
    ```bash
-   mkdir -p /your/nas/path/pagevault/data
-   cd /your/nas/path/pagevault
+   mkdir -p /你的/路径/pagevault/data
+   cd /你的/路径/pagevault
    ```
 
 2. 把仓库里的 `docker-compose.yml`、`server/`、`extension/` 传上去（或者直接从 tar 包解压，
@@ -325,7 +325,7 @@ docker compose up -d --build
 
    ```yaml
    volumes:
-     - /your/nas/path/pagevault/data:/data   # 绝对路径，别用 ./data
+     - /你的/路径/pagevault/data:/data   # 绝对路径，别用 ./data
    environment:
      PUID: "1000"   # NAS 终端里执行 `id` 看到的 uid
      PGID: "1000"

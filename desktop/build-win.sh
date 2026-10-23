@@ -4,7 +4,7 @@
 # Produces: desktop/dist/网页收藏-win32-x64/  (+ a .zip for easy copying)
 set -e
 
-ROOT=/Users/lovenasuserlove/WorkBuddy/2026-10-22-13-27-54/pagevault
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DESKTOP=$ROOT/desktop
 SERVER=$ROOT/server
 

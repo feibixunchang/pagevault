@@ -29,7 +29,7 @@ services:
     volumes:
       # 数据（页面 HTML + index.json + 偏好 + 日志）全部落在这里，删容器不丢数据
       - ./data:/data
-      # NAS 示例：- /your/nas/path/pagevault/data:/data
+      # NAS 示例：- /你的/绝对/路径/pagevault/data:/data
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8731/api/status',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s

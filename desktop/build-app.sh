@@ -5,7 +5,7 @@
 # required on Apple Silicon, otherwise macOS flags the app as damaged/malware.
 set -e
 
-ROOT=/Users/lovenasuserlove/WorkBuddy/2026-10-22-13-27-54/pagevault
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DESKTOP=$ROOT/desktop
 SERVER=$ROOT/server
 SRC_ELECTRON=$DESKTOP/node_modules/electron/dist/Electron.app

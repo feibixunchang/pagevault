@@ -4,7 +4,7 @@
 #            ③ 在弹出的文件框按 Cmd+Shift+G，粘贴（Cmd+V）回车 → 选择
 set -e
 
-EXT_DIR="/Users/lovenasuserlove/WorkBuddy/2026-10-22-13-27-54/pagevault/extension"
+EXT_DIR="$(cd "$(dirname "$0")" && pwd)/extension"
 
 printf '%s' "$EXT_DIR" | pbcopy
 echo "✓ 扩展目录已复制到剪贴板: $EXT_DIR"
