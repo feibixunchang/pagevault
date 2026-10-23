@@ -105,6 +105,8 @@ struct RootView: View {
         }
         if args.contains("-pvOpenSettings") {
             showSettings = true
+        } else if args.contains("-pvOpenHot") {
+            showHot = true
         } else if args.contains("-pvOpenAdd") || args.contains("-pvAddURL") {
             // -pvAddURL <链接> 预填链接；再加 -pvAddAutoSave 就自动保存，用来真机跑通整条链路
             if let i = args.firstIndex(of: "-pvAddURL"), i + 1 < args.count {
