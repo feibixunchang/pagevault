@@ -8,6 +8,8 @@ struct RootView: View {
     @State private var onlyStarred = false
     @State private var showSettings = false
     @State private var showAdd = false
+    @State private var addPrefillURL = ""
+    @State private var addAutoSave = false
 
     private var filtered: [PageMeta] {
         var list = store.pages
@@ -57,7 +59,8 @@ struct RootView: View {
                 SettingsView()
             }
             .sheet(isPresented: $showAdd) {
-                AddByURLView().environmentObject(store)
+                AddByURLView(prefillURL: addPrefillURL, autoSave: addAutoSave)
+                    .environmentObject(store)
             }
             .task {
                 if store.pages.isEmpty { await store.refresh() }
@@ -89,6 +92,13 @@ struct RootView: View {
         }
         if args.contains("-pvOpenSettings") {
             showSettings = true
+        } else if args.contains("-pvOpenAdd") || args.contains("-pvAddURL") {
+            // -pvAddURL <链接> 预填链接；再加 -pvAddAutoSave 就自动保存，用来真机跑通整条链路
+            if let i = args.firstIndex(of: "-pvAddURL"), i + 1 < args.count {
+                addPrefillURL = args[i + 1]
+                addAutoSave = args.contains("-pvAddAutoSave")
+            }
+            showAdd = true
         } else if path.isEmpty, let first = store.pages.first {
             // -pvOpenIndex N 打开第 N 条（默认 0）；用来挑"小页面"验证，避开几百 MB 的巨页
             var index = 0

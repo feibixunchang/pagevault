@@ -13,8 +13,9 @@ const crypto = require('crypto');
 const { SyncEngine, extractMeta, ONLINE_WINDOW_MS } = require('./sync');
 const { createProvider } = require('./providers');
 const { zipStore, zipRead } = require('./zip');
+const { attachWebSocket } = require('./extws');
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
@@ -66,14 +67,21 @@ function dnsProbe() {
 }
 
 // ---------- 扩展心跳状态（阅读器状态栏显示"扩展已连接"） ----------
-let extState = { lastSeen: 0, version: '' };
+// 两种来源：
+//   1) WebSocket 长连接（新版扩展）—— 实时、精确，断了立刻知道；
+//   2) HTTP 心跳（旧版扩展）—— 兜底，按 2 分钟窗口判断。
+let extState = { lastSeen: 0, version: '', wsSeen: false };
 try { extState = Object.assign(extState, JSON.parse(fs.readFileSync(EXT_STATE_FILE, 'utf8'))); } catch { /* 无文件用默认 */ }
 function touchExtension(version) {
   extState.lastSeen = Date.now();
   if (version) extState.version = version;
   try { fs.writeFileSync(EXT_STATE_FILE, JSON.stringify(extState)); } catch { /* 只读环境忽略 */ }
 }
+let extSockets = 0;   // 当前连着的扩展 WebSocket 数量
 function extensionOnline() {
+  // 扩展支持 WebSocket（新版）→ 以长连接为准：断了就是断了，秒级准确
+  if (extState.wsSeen) return extSockets > 0;
+  // 老扩展只有 HTTP 心跳 → 按 2 分钟窗口判断
   return extState.lastSeen > 0 && (Date.now() - extState.lastSeen) < ONLINE_WINDOW_MS;
 }
 
@@ -92,6 +100,14 @@ function extensionDir() {
   }
   return null;
 }
+
+// 安装包内置的扩展版本：用来判断浏览器里跑的是不是旧版扩展。
+// 旧版扩展不会用 WebSocket 长连接，浏览器里不点「重新加载」就永远连不回来。
+let bundledExtVersion = '';
+try {
+  const d = extensionDir();
+  if (d) bundledExtVersion = String((JSON.parse(fs.readFileSync(path.join(d, 'manifest.json'), 'utf8')) || {}).version || '');
+} catch { /* 读不到就当没有 */ }
 
 // ---------- 删除记录（tombstone） ----------
 function loadDeletions() {
@@ -463,6 +479,18 @@ function broadcastMeta(evt) {
   for (const c of sseClients) { try { c.res.write(payload); } catch { sseClients.delete(c); } }
 }
 
+// 扩展连接状态变化 → 立刻推给所有界面（不用等心跳窗口过期）
+function broadcastExt() {
+  const payload = `data: ${JSON.stringify({
+    type: 'ext',
+    online: extensionOnline(),
+    connected: extSockets > 0,
+    lastSeen: extState.lastSeen,
+    version: extState.version
+  })}\n\n`;
+  for (const c of sseClients) { try { c.res.write(payload); } catch { sseClients.delete(c); } }
+}
+
 // ---- 远程图片代理：兜底渲染残留的远程图片（旧存档/防盗链图）----
 const imgCache = new Map();
 async function fetchImage(targetUrl, referer) {
@@ -624,7 +652,15 @@ const server = http.createServer((req, res) => {
       }
       send(res, 200, JSON.stringify({
         ok: true, version: VERSION, port: PORT, platform: PLATFORM,
-        extension: { lastSeen: extState.lastSeen, version: extState.version, online: extensionOnline() },
+        extension: {
+          lastSeen: extState.lastSeen,
+          version: extState.version,
+          online: extensionOnline(),
+          connected: extSockets > 0,
+          bundledVersion: bundledExtVersion,
+          // 浏览器里跑的扩展比安装包里的旧 → 需要去扩展页点「重新加载」
+          outdated: !!(extState.version && bundledExtVersion && extState.version !== bundledExtVersion)
+        },
         extensionPath: extensionDir(),
         sync: {
           configured: s.configured,
@@ -1103,6 +1139,26 @@ const server = http.createServer((req, res) => {
   }
 
   send(res, 404, 'not found');
+});
+
+// ---- 扩展长连接（WebSocket）----
+// 扩展连上/断开都立刻更新状态并推给界面；扩展断线后自己会指数退避重连，
+// 所以「客户端重启后扩展连不上」的问题就消失了：客户端一上线，扩展几秒内自己接回来。
+const extWs = attachWebSocket(server, {
+  path: '/ws/ext',
+  onOpen(client) {
+    extSockets++;
+    if (!extState.wsSeen) { extState.wsSeen = true; }
+    touchExtension(client.version);
+    broadcastExt();
+  },
+  onMessage(client, text) {
+    touchExtension(client.version);
+  },
+  onClose() {
+    extSockets = Math.max(0, extSockets - 1);
+    broadcastExt();
+  }
 });
 
 server.listen(PORT, () => {

@@ -9,6 +9,11 @@ struct AddByURLView: View {
     @EnvironmentObject private var store: Store
     @Environment(\.dismiss) private var dismiss
 
+    /// 命令行验证用（只在 Debug 构建里传）：预填链接并自动保存，
+    /// 用来在真机上跑通「手机 → 服务端抓取 → 落盘 → 列表」整条链路。
+    var prefillURL: String = ""
+    var autoSave: Bool = false
+
     @State private var text = ""
     @State private var title = ""
     @State private var busy = false
@@ -84,16 +89,36 @@ struct AddByURLView: View {
                         .disabled(!canSave)
                 }
             }
-            .onAppear { urlFocused = true }
+            .onAppear {
+                urlFocused = true
+                // 调试：命令行直接读启动参数，避免 SwiftUI 把 prefillURL 传丢
+                // 注意：@State 写入后同一段代码里读到的还是旧值，所以要用局部变量往下传
+                var t = text
+                if t.isEmpty {
+                    let args = ProcessInfo.processInfo.arguments
+                    if let i = args.firstIndex(of: "-pvAddURL"), i + 1 < args.count {
+                        t = args[i + 1]
+                    }
+                }
+                text = t
+                let wantAuto = autoSave || ProcessInfo.processInfo.arguments.contains("-pvAddAutoSave")
+                if wantAuto, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    saveValue(t)
+                }
+            }
         }
     }
 
     private func save() {
+        saveValue(text)
+    }
+
+    private func saveValue(_ url: String) {
         busy = true
         errorText = nil
         let t = title
         Task {
-            let err = await store.addByURL(text, title: t)
+            let err = await store.addByURL(url, title: t)
             busy = false
             if let err {
                 errorText = err

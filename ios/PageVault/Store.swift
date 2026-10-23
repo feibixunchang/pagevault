@@ -109,6 +109,8 @@ final class Store: ObservableObject {
         if let t = value("-pvTheme"), let v = AppTheme(rawValue: t) { theme = v }
         if let s = value("-pvFontSize"), let v = Double(s) { fontSize = v }
         if let f = value("-pvFont"), let v = ReaderFont(rawValue: f) { readerFont = v }
+        // 临时指一台别的服务端（真机验证链路用，不写盘）
+        if let u = value("-pvServerURL") { serverURLString = u }
         if args.contains("-pvOriginal") { readerMode = false }
         if args.contains("-pvBold") { boldText = true }
         if args.contains("-pvNoBold") { boldText = false }

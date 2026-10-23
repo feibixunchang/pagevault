@@ -1,6 +1,6 @@
 {
   "name": "pagevault-server",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "PageVault sync server — stores full captured web pages and serves them to all clients.",
   "main": "server.js",
