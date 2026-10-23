@@ -12,9 +12,12 @@
 #   用户名      NAS 上的用户名
 #   数据目录    pagevault 在 NAS 上的存放位置（默认 ~/pagevault）
 #
-# ⚠️ 关键：**必须**把 NAS 专用的 compose-new.yml 复制成 docker-compose.yml，
-#    否则会用到仓库里那份通用 compose（挂载 ./data，容器里是空目录），
-#    结果就是「服务起来了但库是空的」——数据其实没丢，只是挂错地方了。
+# ⚠️ 两个必须做的动作（漏了都会出事）：
+#   1) 把 NAS 专用的 compose-new.yml 复制成 docker-compose.yml
+#      ——否则用的是仓库里那份通用 compose（挂 ./data，容器里是空目录），
+#        表现为「服务起来了但库是空的」（数据没丢，只是挂错地方了）
+#   2) 把镜像标签改成当前版本
+#      ——compose-new.yml 里的 tag 可能是旧的，会把容器降级回老版本
 set -e
 
 NAS_IP=${1:-}
@@ -62,6 +65,7 @@ ssh $SSH_OPTS "$NAS_USER@$NAS_IP" "
   cd '$NAS_DIR' &&
   tar xzf '$PKG' &&
   cp compose-new.yml pagevault-docker/docker-compose.yml &&
+  sed -i 's|image: pagevault/server:1.[0-9.]*|image: pagevault/server:$VER|' pagevault-docker/docker-compose.yml &&
   cd pagevault-docker &&
   docker compose up -d --build 2>&1 | tail -2 &&
   sleep 10 &&
