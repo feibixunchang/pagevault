@@ -49,8 +49,26 @@ struct RootView: View {
             }
             .task {
                 if store.pages.isEmpty { await store.refresh() }
+                openDebugScreenIfRequested()
+            }
+            // 从后台切回来时静默刷新：在电脑上刚存的页面，回到手机就该看见
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                Task { await store.refresh(showSpinner: false) }
             }
         }
+    }
+
+    /// 命令行验证界面用（只在 Debug 构建里编译）：
+    /// `xcrun devicectl device process launch --console --device <UDID> com.feibixunchang.pagevault -pvOpenFirst`
+    private func openDebugScreenIfRequested() {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-pvOpenSettings") {
+            showSettings = true
+        } else if args.contains("-pvOpenFirst"), path.isEmpty, let first = store.pages.first {
+            path.append(first)
+        }
+        #endif
     }
 
     // MARK: - 子视图

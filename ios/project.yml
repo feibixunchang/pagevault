@@ -28,6 +28,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
+        # 自己的 Apple ID 团队；别人 clone 后改成自己的，否则签不过
+        DEVELOPMENT_TEAM: 6B8ND5JK75
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
     info:
