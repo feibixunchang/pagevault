@@ -23,7 +23,7 @@ RUN apk add --no-cache tini su-exec
 WORKDIR /app
 
 # 只拷运行期需要的东西；server 源码全部用 Node 内置模块，无 node_modules
-COPY server/package.json server/server.js server/sync.js server/providers.js server/webdav.js server/zip.js server/dnsx.js ./
+COPY server/package.json server/server.js server/sync.js server/providers.js server/webdav.js server/zip.js server/dnsx.js server/extws.js ./
 COPY server/public ./public
 COPY extension ./extension
 COPY server/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
