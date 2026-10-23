@@ -11,7 +11,13 @@ final class Store: ObservableObject {
     @Published private(set) var lastUpdated: Date?
     @Published var errorMessage: String?
     @Published var serverURLString: String {
-        didSet { UserDefaults.standard.set(serverURLString, forKey: Keys.serverURL) }
+        // ⚠️ 这里必须检查 suppressPersist：调试参数 -pvServerURL 走的就是这个属性，
+        // 漏了会把临时地址写进 UserDefaults —— 用户下次开 App 还连着那台机器，
+        // 表现就是「必须开着电脑上那个客户端才能用」。踩过一次，别再漏。
+        didSet {
+            if suppressPersist { return }
+            UserDefaults.standard.set(serverURLString, forKey: Keys.serverURL)
+        }
     }
 
     // MARK: - 外观与阅读偏好（全部落 UserDefaults，改了立即生效）

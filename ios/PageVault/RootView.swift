@@ -224,6 +224,29 @@ struct RootView: View {
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
+                    // 连不上时把「正在连哪个地址」摆出来，否则用户根本不知道该改什么
+                    Text("当前地址：\(store.serverURLString)")
+                        .pvFont(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                    HStack(spacing: 14) {
+                        Button {
+                            Task { await store.refresh() }
+                        } label: {
+                            Label("重试", systemImage: "arrow.clockwise").pvFont(.footnote)
+                        }
+                        // 地址填错（比如还指着某台已经关机的电脑）时，一键切回默认的 NAS
+                        if store.serverURLString != Store.defaultServerURL {
+                            Button {
+                                store.serverURLString = Store.defaultServerURL
+                                Task { await store.refresh() }
+                            } label: {
+                                Label("切回默认地址", systemImage: "arrow.uturn.backward").pvFont(.footnote)
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
                 } else if store.online {
                     Text("电脑上装好扩展，看到想留的页面点一下就行；手机上点左上角 + 粘贴链接也能存。")
                         .pvFont(.footnote)

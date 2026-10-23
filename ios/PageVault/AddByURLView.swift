@@ -42,7 +42,7 @@ struct AddByURLView: View {
 
                 Section {
                     Button {
-                        if let s = UIPasteboard.general.string { text = s }
+                        pasteFromClipboard()
                     } label: {
                         Label("从剪贴板粘贴", systemImage: "doc.on.clipboard")
                     }
@@ -113,6 +113,31 @@ struct AddByURLView: View {
         saveValue(text)
     }
 
+    /// 从剪贴板取链接。
+    ///
+    /// Safari 复制链接时，剪贴板里可能只有 URL 类型、没有字符串类型（也可能是反过来的），
+    /// 所以两个都试；另外 iOS 16+ 读取剪贴板会弹「允许粘贴」，被拒时两样都是空，
+    /// 这时要明确告诉用户「没读到」，而不是让人对着空输入框发呆。
+    private func pasteFromClipboard() {
+        let pm = UIPasteboard.general
+        var value: String?
+        if let s = pm.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            value = s
+        } else if let u = pm.url {
+            value = u.absoluteString
+        } else if let first = pm.items.first,
+                  let s = first.values.compactMap({ $0 as? String }).first {
+            // 有些 App 只放了纯文本 / RTF
+            value = s
+        }
+        if let v = value, !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            text = v
+            errorText = nil
+        } else {
+            errorText = "没读到剪贴板内容。如果系统弹了「允许粘贴」，先点允许；也可以直接长按输入框粘贴。"
+        }
+    }
+
     private func saveValue(_ url: String) {
         busy = true
         errorText = nil
@@ -121,7 +146,10 @@ struct AddByURLView: View {
             let err = await store.addByURL(url, title: t)
             busy = false
             if let err {
-                errorText = err
+                // 连不上的时候把地址带上，用户才知道是「地址不对」还是「页面抓不到」
+                errorText = err.contains("连不上") || err.contains("找不到")
+                    ? "\(err)（当前地址：\(store.serverURLString)）"
+                    : err
             } else {
                 dismiss()
             }

@@ -43,6 +43,12 @@ public class SettingsActivity extends Activity {
 
         serverInput.setText(Prefs.serverUrl(this));
         findViewById(R.id.btnTest).setOnClickListener(v -> testConnection());
+        // 地址填错了（比如指向一台已经关机的电脑）时，一键回到默认的 NAS
+        findViewById(R.id.btnResetServer).setOnClickListener(v -> {
+            serverInput.setText(Api.DEFAULT_SERVER);
+            Prefs.setServerUrl(this, Api.DEFAULT_SERVER);
+            Toast.makeText(this, R.string.add_saved, Toast.LENGTH_SHORT).show();
+        });
         findViewById(R.id.btnSaveServer).setOnClickListener(v -> {
             Prefs.setServerUrl(this, serverInput.getText().toString());
             Toast.makeText(this, R.string.add_saved, Toast.LENGTH_SHORT).show();

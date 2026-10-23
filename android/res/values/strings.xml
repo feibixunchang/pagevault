@@ -22,6 +22,7 @@
     <string name="settings_server_hint">http://192.168.1.2:8731</string>
     <string name="settings_server_tip">填你运行「网页收藏」的电脑或 NAS，例如 http://192.168.1.2:8731。手机要和它在同一个网络。</string>
     <string name="settings_test">测试连接</string>
+    <string name="settings_reset_server">恢复默认</string>
     <string name="settings_test_ok">连接正常（%1$s）</string>
     <string name="settings_test_fail">连不上：%1$s</string>
     <string name="settings_appearance">外观</string>
