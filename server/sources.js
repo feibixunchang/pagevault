@@ -91,7 +91,7 @@ const SOURCES = [
     },
     // 知乎的接口必须带登录态 cookie，否则 401
     needsCookie: true,
-    cookieHint: '浏览器登录知乎后，F12 → Network → 任意请求 → Request Headers 里找 cookie，整行复制（只要 z_c0=… 那段也行）',
+    cookieHint: '浏览器登录知乎后按 F12 → Network → 任意请求 → Request Headers，把整行 cookie 复制过来（只要含 z_c0=… 那段就够）。Cookie 过期了这里也要重新填。',
     // 抽不到正文就不存：宁可少存一篇，也别存一堆空页面
     requireContent: true,    selectors: ['.Post-RichText', '.RichContent-inner', 'article'],
 

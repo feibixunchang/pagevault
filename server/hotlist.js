@@ -93,7 +93,17 @@ class HotListEngine {
       if (!cookie) throw new Error(source.cookieHint || '这个来源需要 Cookie');
       headers.Cookie = cookie;
     }
-    const r = await fetchText(source.url, headers);
+    let r;
+    try {
+      r = await fetchText(source.url, headers);
+    } catch (e) {
+      // 登录态来源最常见的问题是 Cookie 过期/粘错了，要说人话
+      const msg = (e && e.message) || String(e);
+      if (source.needsCookie && /HTTP 401|403/.test(msg)) {
+        throw new Error('Cookie 无效或已过期（' + msg + '），请重新复制一份');
+      }
+      throw e;
+    }
     const ctx = {
       fetchJSON: async (url) => {
         const j = await fetchText(url, headers);

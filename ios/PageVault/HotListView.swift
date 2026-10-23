@@ -11,11 +11,22 @@ struct HotListView: View {
     @State private var loading = true
     @State private var busy: Set<String> = []
     @State private var message = ""
+    @State private var messageHasError = false
     @State private var cookieDraft: [String: String] = [:]
 
     var body: some View {
         NavigationStack {
-            List {
+            VStack(spacing: 0) {
+                if !message.isEmpty {
+                    Text(message)
+                        .pvFont(.footnote)
+                        .foregroundColor(messageHasError ? Color.red : Color.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color(.secondarySystemBackground))
+                }
+                List {
                 Section {
                     Button {
                         pullAll()
@@ -77,6 +88,7 @@ struct HotListView: View {
                         }
                     }
                 }
+                }
             }
             .navigationTitle("热榜")
             .navigationBarTitleDisplayMode(.inline)
@@ -87,6 +99,12 @@ struct HotListView: View {
             }
             .task { await load() }
         }
+    }
+
+    /// 统一的提示：成功/失败都要说出来，不能让用户对着界面猜
+    private func say(_ text: String, isError: Bool = false) {
+        message = text
+        messageHasError = isError
     }
 
     private func subtitle(_ s: HotSource) -> String {
@@ -115,11 +133,11 @@ struct HotListView: View {
             let r = await store.pullHotSource(s.id, limit: s.limit, cookie: cookieDraft[s.id])
             busy.remove(s.id)
             if let err = r.error {
-                message = "拉取失败：\(err)"
+                say("拉取失败：\(err)", isError: true)
             } else {
-                message = "存入 \(r.saved.count) 篇"
+                say("拉取成功：存入 \(r.saved.count) 篇"
                     + (r.skipped.count > 0 ? "，跳过 \(r.skipped.count) 篇（多半已经收藏过）" : "")
-                    + "，用时 \(Int(r.durationMs / 1000)) 秒"
+                    + "，用时 \(Int(r.durationMs / 1000)) 秒")
                 await store.refresh(showSpinner: false)
             }
             await load()
@@ -133,10 +151,11 @@ struct HotListView: View {
             let r = await store.pullAllHotSources()
             busy.remove("__all__")
             if let err = r.error {
-                message = "拉取失败：\(err)"
+                say("拉取失败：\(err)", isError: true)
             } else {
                 let saved = r.results.reduce(0) { $0 + $1.saved.count }
-                message = "全部拉取完成：存入 \(saved) 篇"
+                let errs = r.results.reduce(0) { $0 + $1.errors.count }
+                say("全部拉取完成：存入 \(saved) 篇" + (errs > 0 ? "，失败 \(errs) 篇" : ""))
                 await store.refresh(showSpinner: false)
             }
             await load()
@@ -144,9 +163,18 @@ struct HotListView: View {
     }
 
     private func saveCookie(_ s: HotSource) {
-        let c = cookieDraft[s.id] ?? ""
+        let c = (cookieDraft[s.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if c.isEmpty {
+            say("Cookie 是空的，没保存", isError: true)
+            return
+        }
         Task {
-            _ = await store.saveHotSourceConfig(s.id, cookie: c)
+            let ok = await store.saveHotSourceConfig(s.id, cookie: c)
+            if ok {
+                say("\(s.name) 的 Cookie 已保存", isError: false)
+            } else {
+                say("Cookie 保存失败：连不上服务端", isError: true)
+            }
             await load()
         }
     }

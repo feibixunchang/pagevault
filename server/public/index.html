@@ -271,9 +271,20 @@
     border-radius:7px; padding:5px 11px; font-size:12px; cursor:pointer; }
   .hotLog { font-size:11px; color:var(--muted); line-height:1.6; margin-top:8px; white-space:pre-wrap; }
   .hotLog b { color:var(--text); }
+
+  /* ---------- 统一的操作提示（浮在屏幕上，不被面板里的刷新冲掉） ---------- */
+  #toast { position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(8px);
+    z-index:300; display:none; max-width:min(520px, 84vw); padding:10px 16px; border-radius:10px;
+    background:rgba(28,32,38,.95); color:#fff; font-size:13px; line-height:1.55; text-align:center;
+    box-shadow:0 8px 26px rgba(0,0,0,.28); opacity:0; transition:opacity .16s, transform .16s;
+    pointer-events:none; word-break:break-word; }
+  #toast.show { display:block; opacity:1; transform:translateX(-50%) translateY(0); }
+  #toast.err { background:rgba(178,38,30,.96); }
+  #toast.ok { background:rgba(26,110,60,.96); }
 </style>
 </head>
 <body>
+  <div id="toast"></div>
   <header>
     <h1>网页收藏</h1>
     <span class="count" id="count"></span>
@@ -1674,6 +1685,7 @@
     syncEditor.style.display = 'none';
     editingId = null;
     syncStatus.textContent = t('targetSaved'); syncStatus.className = 'ok';
+    toast(t('targetSaved'), 'ok');
     refreshStatus();
     setTimeout(runSync, 300);
   });
@@ -1702,10 +1714,12 @@
       const res = await r.json();
       if (res.ok) {
         syncStatus.textContent = t('syncResult', res.stats); syncStatus.className = 'ok';
+        toast(t('syncResult', res.stats), 'ok');
         load(); refreshStatus();
       } else {
         syncStatus.textContent = t('syncErr', (res.status && res.status.lastError) || 'unknown');
         syncStatus.className = 'err';
+        toast(t('syncErr', (res.status && res.status.lastError) || 'unknown'), 'err');
       }
     } catch (e) { syncStatus.textContent = t('syncErr', e && e.message); syncStatus.className = 'err'; }
   }
@@ -1729,6 +1743,7 @@
     try { await navigator.clipboard.writeText(v); }
     catch { inp.select(); try { document.execCommand('copy'); } catch { /* 忽略 */ } }
     syncStatus.textContent = t('copied'); syncStatus.className = 'ok';
+    toast(t('copied'), 'ok');
   });
   document.getElementById('resetTokenBtn').addEventListener('click', async () => {
     try {
@@ -1736,6 +1751,7 @@
       const d = await r.json();
       document.getElementById('srcToken').value = d.token || '';
       syncStatus.textContent = t('tokenReset'); syncStatus.className = 'ok';
+      toast(t('tokenReset'), 'ok');
     } catch (e) { syncStatus.textContent = t('syncErr', e && e.message); syncStatus.className = 'err'; }
   });
 
@@ -1743,6 +1759,7 @@
   document.getElementById('exportBtn').addEventListener('click', () => {
     window.location.href = '/api/export.zip';
     syncStatus.textContent = t('exportStarted'); syncStatus.className = 'ok';
+    toast(t('exportStarted'), 'ok');
   });
   const importFile = document.getElementById('importFile');
   document.getElementById('importBtn').addEventListener('click', () => importFile.click());
@@ -1757,10 +1774,12 @@
       if (!res.ok) throw new Error(res.message || 'HTTP ' + r.status);
       syncStatus.textContent = res.imported ? t('importOk', res.imported) : t('importNone');
       syncStatus.className = 'ok';
+      toast(res.imported ? t('importOk', res.imported) : t('importNone'), 'ok');
       load(); refreshStatus();
     } catch (e) {
       syncStatus.textContent = t('importFail', e && e.message ? e.message : e);
       syncStatus.className = 'err';
+      toast(t('importFail', e && e.message ? e.message : e), 'err');
     } finally { importFile.value = ''; }
   });
 
@@ -1795,6 +1814,25 @@
     savePrefs();
     applyI18n();
   });
+
+  // ---------- 操作提示 ----------
+  // 用户点了任何"要填东西/会失败"的按钮，都必须给一句明确的反馈：
+  // 成功说成功，失败说失败原因，不能让人对着界面猜。
+  let toastTimer = null;
+  function toast(msg, kind) {
+    const el = document.getElementById('toast');
+    if (!el) return;
+    el.textContent = String(msg == null ? '' : msg);
+    el.className = 'show' + (kind ? ' ' + kind : '');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = ''; }, kind === 'err' ? 5200 : 2800);
+  }
+  /** 把服务端返回的错误翻成人话 */
+  function errText(e) {
+    if (!e) return '未知错误';
+    if (typeof e === 'string') return e;
+    return e.message || e.error || String(e);
+  }
 
   // ---------- 热榜 ----------
   const hotPanel = document.getElementById('hotPanel');
@@ -1870,7 +1908,11 @@
         sel.appendChild(o);
       }
       sel.title = '每次拉多少篇';
-      sel.addEventListener('change', () => updateSource(s.id, { limit: Number(sel.value) }));
+      sel.addEventListener('change', async () => {
+        const n = Number(sel.value);
+        const ok = await updateSource(s.id, { limit: n });
+        if (ok) toast(s.name + '：每次拉 ' + n + ' 篇', 'ok');
+      });
       row.appendChild(sel);
 
       const btn = document.createElement('button');
@@ -1899,13 +1941,32 @@
         row2.className = 'row';
         const save = document.createElement('button');
         save.textContent = '保存 Cookie';
-        save.addEventListener('click', () => {
-          updateSource(s.id, { cookie: ta.value.trim() });
-          hotLog.textContent = '已保存 ' + s.name + ' 的 Cookie';
+        save.addEventListener('click', async () => {
+          const v = ta.value.trim();
+          if (!v) { toast('Cookie 是空的，没保存', 'err'); return; }
+          const ok = await updateSource(s.id, { cookie: v });
+          if (ok) {
+            toast(s.name + ' 的 Cookie 已保存', 'ok');
+            // 关键：同步到本地 prefs，否则之后任何一次"保存偏好"都会带着旧值
+            // 把服务端的 Cookie 覆盖成空（这个坑踩过）
+            if (!prefs.hotlist) prefs.hotlist = { sources: {} };
+            if (!prefs.hotlist.sources) prefs.hotlist.sources = {};
+            if (!prefs.hotlist.sources[s.id]) prefs.hotlist.sources[s.id] = {};
+            prefs.hotlist.sources[s.id].cookie = v;
+          }
         });
         const clr = document.createElement('button');
         clr.textContent = '清除';
-        clr.addEventListener('click', () => { ta.value = ''; updateSource(s.id, { cookie: '' }); });
+        clr.addEventListener('click', async () => {
+          ta.value = '';
+          const ok = await updateSource(s.id, { cookie: '' });
+          if (ok) {
+            toast(s.name + ' 的 Cookie 已清除', 'ok');
+            if (prefs.hotlist && prefs.hotlist.sources && prefs.hotlist.sources[s.id]) {
+              prefs.hotlist.sources[s.id].cookie = '';
+            }
+          }
+        });
         row2.appendChild(save);
         row2.appendChild(clr);
         box.appendChild(row2);
@@ -1916,14 +1977,20 @@
 
   async function updateSource(id, patch) {
     try {
-      await fetch('/api/sources/' + id, {
+      const r = await fetch('/api/sources/' + id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch)
       });
-      await loadSources();
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.error || ('HTTP ' + r.status));
+      }
+      await loadSources(true);
+      return true;
     } catch (e) {
-      hotLog.textContent = '保存失败：' + (e && e.message ? e.message : e);
+      toast('保存失败：' + errText(e), 'err');
+      return false;
     }
   }
 
@@ -1939,17 +2006,21 @@
       });
       const d = await r.json();
       if (!d.ok && d.errors && d.errors.length) {
-        hotLog.innerHTML = '<b>拉取失败</b>\n' + d.errors.map(e => (e.error || '') + (e.title ? '（' + e.title + '）' : '')).join('\n');
+        const why = d.errors.map(e => (e.error || '') + (e.title ? '（' + e.title + '）' : '')).join('\n');
+        hotLog.innerHTML = '<b>拉取失败</b>\n' + why.replace(/\n/g, '<br>');
+        toast('拉取失败：' + why.split('\n')[0], 'err');
       } else {
         const parts = ['存入 <b>' + (d.saved || []).length + '</b> 篇'];
-        if ((d.skipped || []).length) parts.push('跳过 ' + d.skipped.length + ' 篇（多半是已经收藏过）');
+        if ((d.skipped || []).length) parts.push('跳过 ' + d.skipped.length + ' 篇');
         if ((d.errors || []).length) parts.push('失败 ' + d.errors.length + ' 篇');
         parts.push('用时 ' + Math.round((d.durationMs || 0) / 1000) + ' 秒');
         hotLog.innerHTML = parts.join(' · ');
-        if ((d.saved || []).length) { load(); }
+        toast((d.saved || []).length ? parts.join(' · ') : '没有新文章（可能都收藏过了）',
+              (d.saved || []).length ? 'ok' : '');
       }
     } catch (e) {
-      hotLog.textContent = '拉取失败：' + (e && e.message ? e.message : e);
+      hotLog.textContent = '拉取失败：' + errText(e);
+      toast('拉取失败：' + errText(e), 'err');
     }
     await loadSources(true);
   }

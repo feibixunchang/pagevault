@@ -117,7 +117,9 @@ public class HotListActivity extends Activity {
         Api.async("POST", "/api/sources/" + id + "/pull", payload,
                 r -> {
                     if (!r.ok()) {
-                        status.setText(getString(R.string.load_fail, r.error != null ? r.error : ("HTTP " + r.code)));
+                        String why = r.error != null ? r.error : ("HTTP " + r.code);
+                        status.setText(getString(R.string.load_fail, why));
+                        Toast.makeText(this, getString(R.string.load_fail, why), Toast.LENGTH_LONG).show();
                         return;
                     }
                     try {
@@ -136,6 +138,14 @@ public class HotListActivity extends Activity {
                         sb.append("，用时 ").append(d.optInt("durationMs", 0) / 1000).append(" 秒");
                         status.setText(sb.toString());
                         Toast.makeText(this, sb.toString(), Toast.LENGTH_LONG).show();
+                        if (errs.length() > 0) {
+                            // 有失败项时把第一条原因单独说清楚
+                            JSONObject e0 = errs.getJSONObject(0);
+                            String em = e0.optString("error", "");
+                            if (em.length() > 0) {
+                                status.setText(status.getText().toString() + "\n" + em);
+                            }
+                        }
                     } catch (Exception e) {
                         status.setText(e.getMessage() == null ? "" : e.getMessage());
                     }
@@ -147,7 +157,9 @@ public class HotListActivity extends Activity {
         status.setText(R.string.hot_pulling_all);
         Api.async("POST", "/api/sources/pull-all", "{}", r -> {
             if (!r.ok()) {
-                status.setText(getString(R.string.load_fail, r.error != null ? r.error : ("HTTP " + r.code)));
+                String why = r.error != null ? r.error : ("HTTP " + r.code);
+                status.setText(getString(R.string.load_fail, why));
+                Toast.makeText(this, getString(R.string.load_fail, why), Toast.LENGTH_LONG).show();
                 return;
             }
             try {

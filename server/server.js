@@ -748,7 +748,10 @@ const server = http.createServer((req, res) => {
             enabled: typeof c.enabled === 'boolean' ? c.enabled : cur.sources[s.id].enabled,
             limit: Math.max(1, Math.min(20, Number(c.limit) || cur.sources[s.id].limit)),
             intervalSec: Math.max(0, Math.min(86400 * 7, Number(c.intervalSec) || 0)),
-            cookie: c.cookie !== undefined ? String(c.cookie).slice(0, 4000) : cur.sources[s.id].cookie
+            // ⚠️ Cookie 只认 PUT /api/sources/:id 写进来的值。
+            // 前端 /api/prefs 里带的是**页面加载时的旧快照**，要是照单全收，
+            // 用户刚存好的 Cookie 会被下一次「保存偏好」覆盖成空 —— 踩过一次。
+            cookie: cur.sources[s.id].cookie
           };
         }
         clean.hotlist = { sources: merged };
