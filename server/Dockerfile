@@ -15,7 +15,7 @@ FROM node:22-alpine
 LABEL org.opencontainers.image.title="PageVault 网页收藏" \
       org.opencontainers.image.description="多端网页收藏：Web 阅读器 + 浏览器扩展 + WebDAV 同步" \
       org.opencontainers.image.source="https://github.com/feibixunchang/pagevault" \
-      org.opencontainers.image.version="1.3.0" \
+      org.opencontainers.image.version="1.4.0" \
       org.opencontainers.image.licenses="MIT"
 
 RUN apk add --no-cache tini su-exec

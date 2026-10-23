@@ -17,6 +17,10 @@ UNPACK=$WINBUILD/electron-v${ELECTRON_VER}-win32-x64
 # 注意：zip 内一律用 ASCII 文件名（文件夹/exe）。Windows 10 资源管理器按本地代码页
 # 解压非 ASCII 名会乱码，用户可能因此找不到/点错文件。
 OUT=$DESKTOP/dist/WebVault-win32-x64
+# 对外发布的 zip 文件名带版本号（内部目录名不带，更新器按"解压后第一个目录"找，
+# 不依赖目录名，保持稳定）
+VER=$(node -p "require('$DESKTOP/package.json').version")
+ZIPNAME="WebVault-$VER-win32-x64.zip"
 
 # 1. Fetch the Electron Windows runtime if not present (CN mirror, no auth)
 if [ ! -d "$UNPACK" ]; then
@@ -65,12 +69,12 @@ cp "$DESKTOP/uninstall-win.cmd" "$OUT/uninstall.cmd"
 
 # 3b. 使用说明（带 UTF-8 BOM，老版本记事本也能正确显示中文）
 printf '\xEF\xBB\xBF' > "$OUT/README.txt"
-cat >> "$OUT/README.txt" <<'EOF'
-网页收藏 Windows 版使用说明
+cat >> "$OUT/README.txt" <<EOF
+网页收藏 Windows 版使用说明（v$VER）
 ============================
 
 一、安装（推荐：双击 install.cmd 一键安装）
-  1. 把 WebVault-win32-x64.zip 完整解压到任意目录（建议纯英文路径，如 D:\WebVault）。
+  1. 把 $ZIPNAME 完整解压到任意目录（建议纯英文路径，如 D:\\WebVault）。
      注意：不要在资源管理器的 zip 预览窗口里直接双击 exe——
      必须"解压全部"到文件夹后再运行，否则程序必需的伴生文件
      （icudtl.dat、*.pak、locales 等）不在同目录，会报 ICU 错误且无窗口。
@@ -121,10 +125,10 @@ cat >> "$OUT/README.txt" <<'EOF'
 EOF
 
 # 4. Zip it up for transfer to a Windows machine
-( cd "$DESKTOP/dist" && rm -f "WebVault-win32-x64.zip" && zip -q -r "WebVault-win32-x64.zip" "WebVault-win32-x64" )
+( cd "$DESKTOP/dist" && rm -f "$ZIPNAME" && zip -q -r "$ZIPNAME" "WebVault-win32-x64" )
 
 echo "Built: $OUT"
-echo "Zip   : $DESKTOP/dist/WebVault-win32-x64.zip"
+echo "Zip   : $DESKTOP/dist/$ZIPNAME"
 echo ""
 echo "Windows 使用说明："
 echo "  1. 解压 zip 到任意目录（建议纯英文路径，如 D:\\WebVault）"

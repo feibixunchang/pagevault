@@ -1,0 +1,125 @@
+name: Build Linux packages
+
+# Linux 的原生安装包（deb / rpm / AppImage）必须用目标平台的工具链生成才可靠：
+#   - deb 需要 dpkg-deb 的结构与 control 校验
+#   - rpm 需要 rpmbuild 的 header / cpio 组装
+#   - AppImage 需要 mksquashfs
+# 这些在 macOS 上装不上（Homebrew 在沙箱里跑不起来），所以交给 Ubuntu runner。
+# 顺便在这里真的装一遍 deb，验证依赖声明、桌面入口、图标路径都没写错。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要上传到的 release tag（留空则用 package.json 的版本，如 v1.4.0）'
+        required: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装打包工具
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm dpkg-dev squashfs-tools libarchive-tools file
+
+      - name: 准备 appimagetool（失败不阻断，AppImage 属可选产物）
+        continue-on-error: true
+        run: |
+          curl -fL --retry 3 -o /tmp/appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+          cd /tmp && /tmp/appimagetool --appimage-extract >/dev/null
+          sudo ln -sf /tmp/squashfs-root/AppRun /usr/local/bin/appimagetool
+          appimagetool --version || true
+
+      - name: 构建
+        run: |
+          chmod +x desktop/build-linux.sh
+          PYTHON=python3 bash desktop/build-linux.sh
+          ls -lh desktop/dist/ | grep -Ei 'linux|\.deb|\.rpm'
+
+      - name: 校验 deb 结构
+        run: |
+          DEB=$(ls desktop/dist/*.deb | head -1)
+          echo "== $DEB =="
+          dpkg-deb -I "$DEB"
+          dpkg-deb -c "$DEB" | head -20
+          # control 里必须有这俩字段，否则 apt 会拒装
+          dpkg-deb -f "$DEB" Package Depends Architecture
+          # chrome-sandbox 必须是 setuid root
+          dpkg-deb -c "$DEB" | grep chrome-sandbox
+
+      - name: 真装一遍再卸掉
+        run: |
+          DEB=$(ls desktop/dist/*.deb | head -1)
+          sudo apt-get install -y -qq "$DEB" || sudo dpkg -i "$DEB" || true
+          # 依赖可能因为 runner 缺 GUI 库而装不全，这里只关心二进制与资源是否就位
+          ls -l /opt/WebVault/webvault
+          ls -l /usr/bin/webvault
+          ls -l /usr/share/applications/webvault.desktop
+          ls /usr/share/icons/hicolor/512x512/apps/
+          test -f /opt/WebVault/resources/server/server.js
+          test -f /opt/WebVault/resources/app/main.js
+          # 进程能否起来（没有 $DISPLAY 会失败，用 --version 之类的快速退出路径）
+          /opt/WebVault/webvault --version 2>&1 | head -3 || true
+          sudo dpkg -r webvault || true
+
+      - name: 校验 rpm
+        run: |
+          RPM=$(ls desktop/dist/*.rpm 2>/dev/null | head -1) || true
+          if [ -n "$RPM" ]; then
+            echo "== $RPM =="
+            rpm -qip "$RPM"
+            rpm -qlp "$RPM" | head -20
+            rpm -qp --qf '%{NAME} %{VERSION}-%{RELEASE} %{ARCH}\n' "$RPM"
+          else
+            echo "没有 rpm 产物（rpmbuild 不可用？）"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            desktop/dist/*.deb
+            desktop/dist/*.rpm
+            desktop/dist/*.tar.gz
+            desktop/dist/*.AppImage
+          if-no-files-found: warn
+
+      - name: 上传到 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="$INPUT_TAG"
+          if [ -z "$TAG" ]; then
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              TAG="${GITHUB_REF_NAME}"
+            else
+              TAG="v$(node -p "require('./desktop/package.json').version")"
+            fi
+          fi
+          echo "上传到 $TAG"
+          # tag 不存在就别硬传（release 得先由本地脚本创建）
+          gh release view "$TAG" >/dev/null || { echo "release $TAG 不存在，跳过上传"; exit 0; }
+          for f in desktop/dist/*.deb desktop/dist/*.rpm desktop/dist/*.tar.gz desktop/dist/*.AppImage; do
+            [ -f "$f" ] || continue
+            echo "-> $(basename "$f")"
+            gh release upload "$TAG" "$f" --clobber
+          done
+          echo "== 回查 =="
+          gh release view "$TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"'

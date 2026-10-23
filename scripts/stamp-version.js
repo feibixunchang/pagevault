@@ -111,6 +111,27 @@ if (fs.existsSync(IOS_SPEC)) {
     ios = ios.replace(/(CURRENT_PROJECT_VERSION:\s*)"?\d+"?/, '$1"' + buildNo + '"');
   }
   if (!checkOnly && ios !== original) fs.writeFileSync(IOS_SPEC, ios);
+
+  // 5b) 已经生成好的 .xcodeproj 也要跟着改。project.yml 只在 xcodegen 重新生成时生效，
+  //     而日常构建直接用现成的 pbxproj —— 不改这里，装到手机上的版本号就永远是旧的。
+  const IOS_PROJ = path.join(ROOT, 'ios', 'PageVault.xcodeproj', 'project.pbxproj');
+  if (fs.existsSync(IOS_PROJ)) {
+    let pb = fs.readFileSync(IOS_PROJ, 'utf8');
+    const pbOrig = pb;
+    const bumps = [
+      { re: /(MARKETING_VERSION = )"?[\d.]+"?;/g, want: version, label: 'pbxproj MARKETING_VERSION' },
+      { re: /(CURRENT_PROJECT_VERSION = )"?\d+"?;/g, want: buildNo, label: 'pbxproj CURRENT_PROJECT_VERSION' }
+    ];
+    for (const b of bumps) {
+      const found = [...pb.matchAll(b.re)].map(m => (m[0].match(/=\s*"?([\d.]+)"?;/) || [])[1]);
+      const wrong = found.filter(v => v !== b.want);
+      if (wrong.length) {
+        problems.push(b.label + ' ' + Array.from(new Set(wrong)).join(',') + ' → ' + b.want);
+        pb = pb.replace(b.re, '$1"' + b.want + '";');
+      }
+    }
+    if (!checkOnly && pb !== pbOrig) fs.writeFileSync(IOS_PROJ, pb);
+  }
 }
 
 if (problems.length === 0) {

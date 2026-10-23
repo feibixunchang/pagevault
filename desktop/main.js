@@ -12,7 +12,7 @@ const net = require('net');
 const path = require('path');
 const os = require('os');
 
-const { Updater, assetName } = require('./updater.js');
+const { Updater, assetNames } = require('./updater.js');
 
 // 扩展目录：随安装包分发（Mac: Contents/Resources/extension，Win: 解压目录/extension）
 function extensionDir() {
@@ -146,12 +146,14 @@ function setupUpdaterIPC() {
   });
 
   ipcMain.handle('updater:channels', async (_e, tag) => {
-    const list = await updater.speedTest(tag, assetName(process.platform, tag));
+    const list = await updater.speedTest(tag, assetNames(process.platform, tag));
     return list.map(c => ({ id: c.id, name: c.name, url: c.url, bps: Math.round(c.bps / 1024), ms: c.ms }));
   });
 
   ipcMain.handle('updater:download', async (_e, url) => {
-    const dest = path.join(os.tmpdir(), 'pagevault-update-' + Date.now() + '.zip');
+    // 扩展名跟着资产走：Linux 是 .tar.gz，换错后缀 tar 解不开
+    const ext = /\.tar\.gz($|\?)/.test(url) ? '.tar.gz' : '.zip';
+    const dest = path.join(os.tmpdir(), 'pagevault-update-' + Date.now() + ext);
     await updater.download(url, dest);
     return dest;
   });
