@@ -1138,7 +1138,7 @@
     if (aboutLine && st) {
       let line = t('curVer', st.version) + '（' + platName + '）';
       if (ext && ext.online) line += ' · ' + t('verExt') + ' v' + (ext.version || '?');
-      if (!pv && st.platform === 'docker') line += ' · ' + t('updInDocker');
+      if (!pvApi && st.platform === 'docker') line += ' · ' + t('updInDocker');
       aboutLine.textContent = line;
     }
     // 首次引导条：扩展从未连接过、且用户没关过
@@ -1262,7 +1262,11 @@
   }
 
   // ---------- 关于与更新（仅 Electron 桌面端有 window.pv） ----------
-  const pv = window.pv || null;
+  // ⚠️ 名字必须避开 pv：Electron 的 preload 用 contextBridge.exposeInMainWorld('pv', ...)
+  // 暴露的 window.pv 是**不可覆盖**的全局属性，页面里再写顶层 const pv 会直接
+  // 抛 SyntaxError: Identifier 'pv' has already been declared，整页脚本全挂
+  // （Chrome 里没有这个全局变量，所以只有桌面端会炸）。
+  const pvApi = window.pv || null;
   const updateModal = document.getElementById('updateModal');
   const updateVerLine = document.getElementById('updateVerLine');
   const updateChannels = document.getElementById('updateChannels');
@@ -1285,7 +1289,7 @@
     updateEntry.style.display = '';
   }
 
-  if (!pv) {
+  if (!pvApi) {
     // 浏览器直开阅读器：隐藏更新入口，给出说明
     const aboutLine = document.getElementById('aboutVerLine');
     if (aboutLine) aboutLine.textContent = t('updInDesktop');
@@ -1294,12 +1298,12 @@
     const chk = document.getElementById('autoUpdateChk');
     if (chk) chk.parentElement.style.display = 'none';
   } else {
-    pv.invoke('updater:version').then(v => {
+    pvApi.invoke('updater:version').then(v => {
       const line = document.getElementById('aboutVerLine');
       if (line) line.textContent = t('curVer', v || t('verUnknown'));
     }).catch(() => {});
     // 主进程 updater 事件 → 更新 UI
-    pv.on('updater:event', (st) => {
+    pvApi.on('updater:event', (st) => {
       if (st.status === 'available' && st.remoteVersion) showUpdateEntry(st.remoteVersion);
       if (st.status === 'error') {
         // 自动检查失败不再完全静默：设置面板里能看到到底为什么失败
@@ -1315,12 +1319,12 @@
       }
     });
     // 菜单「检查更新…」→ 打开设置面板并触发检查
-    pv.on('updater:menu-check', () => {
+    pvApi.on('updater:menu-check', () => {
       document.getElementById('settingsPanel').classList.add('open');
       checkUpdate();
     });
     // 主进程的系统弹窗点了「立即更新」→ 直接进入测速下载流程
-    pv.on('updater:open-panel', (tag) => {
+    pvApi.on('updater:open-panel', (tag) => {
       if (!tag) return;
       showUpdateEntry(tag);
       openUpdateModal(tag);
@@ -1329,10 +1333,10 @@
   }
 
   async function checkUpdate() {
-    if (!pv) return;
+    if (!pvApi) return;
     updateStatus.textContent = t('checkingUpdate');
     try {
-      const r = await pv.invoke('updater:check');
+      const r = await pvApi.invoke('updater:check');
       if (r && r.hasUpdate && r.tag) {
         updateStatus.textContent = '';
         showUpdateEntry(r.tag);
@@ -1355,7 +1359,7 @@
     updateGoBtn.disabled = true;
     updateModal.classList.add('open');
     // 测速各渠道（后台进程并发 Range 测速，选最快）
-    pv.invoke('updater:channels', tag).then(list => {
+    pvApi.invoke('updater:channels', tag).then(list => {
       channelList = list || [];
       renderChannels();
     }).catch(() => {
@@ -1392,9 +1396,9 @@
     updateProgWrap.style.display = 'block';
     updateProgText.textContent = t('downloading', 0);
     try {
-      const zipPath = await pv.invoke('updater:download', chosenChannel.url);
+      const zipPath = await pvApi.invoke('updater:download', chosenChannel.url);
       updateProgText.textContent = t('installing');
-      await pv.invoke('updater:install', zipPath);
+      await pvApi.invoke('updater:install', zipPath);
       // macOS：install 里已安排 relaunch；这里给用户最后一眼确认
       updateProgText.textContent = t('installDone');
       updateGoBtn.textContent = t('updateInstalled');
@@ -1407,7 +1411,7 @@
   // 设置面板里的检查更新按钮 + 自动更新开关
   document.getElementById('checkUpdateBtn').addEventListener('click', checkUpdate);
   (async () => {
-    if (!pv) return;
+    if (!pvApi) return;
     const chk = document.getElementById('autoUpdateChk');
     try {
       const prefs = await (await fetch('/api/prefs')).json();
@@ -1424,7 +1428,7 @@
   })();
   // 版本号缓存（更新弹窗的 旧版本 → 新版本 显示用）
   let localVersionCache = '';
-  if (pv) pv.invoke('updater:version').then(v => { localVersionCache = v || ''; }).catch(() => {});
+  if (pvApi) pvApi.invoke('updater:version').then(v => { localVersionCache = v || ''; }).catch(() => {});
 
   // ---------- 账号与同步（多目标：WebDAV 网盘 / PageVault 服务器） ----------
   // 设计要点：同步目标是一张列表，每个目标独立启用/独立间隔。
