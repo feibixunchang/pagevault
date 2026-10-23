@@ -45,11 +45,13 @@ public class HotListActivity extends Activity {
 
         list.setAdapter(new BaseAdapter() {
             @Override public int getCount() { return sources.size(); }
-            @Override public Object getItem(int i) { return sources.get(i); }
+            @Override public Object getItem(int i) { return i < sources.size() ? sources.get(i) : null; }
             @Override public long getItemId(int i) { return i; }
 
             @Override
             public View getView(int position, View convertView, ViewGroup parent) {
+                // 列表刷新时可能正在渲染，这里防一手越界
+                if (position >= sources.size()) return convertView;
                 View v = convertView;
                 if (v == null) {
                     v = LayoutInflater.from(HotListActivity.this).inflate(R.layout.item_hot, parent, false);
