@@ -92,6 +92,9 @@ const SOURCES = [
     // 知乎的接口必须带登录态 cookie，否则 401
     needsCookie: true,
     cookieHint: '浏览器登录知乎后，F12 → Network → 任意请求 → Request Headers 里找 cookie，整行复制（只要 z_c0=… 那段也行）',
+    // 抽不到正文就不存：宁可少存一篇，也别存一堆空页面
+    requireContent: true,    selectors: ['.Post-RichText', '.RichContent-inner', 'article'],
+
     parse(text) {
       const data = JSON.parse(text);
       const list = (data && data.data) || [];
@@ -114,7 +117,10 @@ const SOURCES = [
     emoji: '🔥',
     desc: '程序员社区的热门主题',
     type: 'json',
-    url: 'https://www.v2ex.com/api/topics/hot.json',
+    url: 'https://www.v2ex.com/api/topics/hot.json',    selectors: ['.topic_content', '.ps_container'],
+    // 论坛帖子里楼主可能一句话都不写（只发了个标题），那种存下来没意义
+    requireContent: true,
+
     parse(text) {
       const list = JSON.parse(text) || [];
       // 注意：标题和链接在**顶层**，node 只是所属分类（问与答 / 程序员…）
@@ -133,7 +139,8 @@ const SOURCES = [
     desc: '掘金热门文章',
     type: 'json',
     url: 'https://api.juejin.cn/content_api/v1/content/article_rank?category_id=1&type=hot',
-    headers: { 'Accept': 'application/json', 'Referer': 'https://juejin.cn/' },
+    headers: { 'Accept': 'application/json', 'Referer': 'https://juejin.cn/' },    selectors: ['.markdown-body', '.article-content', 'article'],
+
     parse(text) {
       const data = JSON.parse(text) || {};
       const list = data.data || [];
@@ -157,6 +164,7 @@ const SOURCES = [
     desc: '效率与数字生活好文',
     type: 'rss',
     url: 'https://sspai.com/feed',
+    selectors: ['.article-content', '.content', 'article'],
     parse: (text, baseUrl) => parseFeed(text, baseUrl)
   },
   {
@@ -166,6 +174,7 @@ const SOURCES = [
     desc: '科技新闻与评测',
     type: 'rss',
     url: 'https://www.ithome.com/rss/',
+    selectors: ['#paragraph', '.post_content'],
     parse: (text, baseUrl) => parseFeed(text, baseUrl)
   },
   {
@@ -174,7 +183,9 @@ const SOURCES = [
     emoji: '📖',
     desc: '科技周刊与长文',
     type: 'rss',
-    url: 'https://www.ruanyifeng.com/blog/atom.xml',
+    // 官网的 atom.xml 会被 Cloudflare 挡（403），走 feedburner 镜像稳
+    url: 'https://feeds.feedburner.com/ruanyifeng',
+    selectors: ['#main-content', '.entry-content', 'article'],
     parse: (text, baseUrl) => parseFeed(text, baseUrl)
   },
   {
@@ -184,6 +195,7 @@ const SOURCES = [
     desc: '奇客的资讯，重要的东西',
     type: 'rss',
     url: 'https://www.solidot.org/index.rss',
+    selectors: ['.about_at', '.contentbox', 'article'],
     parse: (text, baseUrl) => parseFeed(text, baseUrl)
   },
   {
@@ -193,6 +205,7 @@ const SOURCES = [
     desc: '科技生活方式',
     type: 'rss',
     url: 'https://www.ifanr.com/feed',
+    selectors: ['.article-content', '.article-body', 'article'],
     parse: (text, baseUrl) => parseFeed(text, baseUrl)
   },
   {
@@ -202,6 +215,7 @@ const SOURCES = [
     desc: '科技与商业观察',
     type: 'rss',
     url: 'https://www.geekpark.net/rss',
+    selectors: ['.detail-content', '.article_content', 'article'],
     parse: (text, baseUrl) => parseFeed(text, baseUrl)
   },
   {
@@ -212,7 +226,14 @@ const SOURCES = [
     type: 'json',
     url: 'https://hacker-news.firebaseio.com/v0/topstories.json',
     async: true,
-    // HN 的 topstories 只给 id，要再逐个取 item；这里在服务端展开
+    // HN 的 topstories 只给 id，要再逐个取 item；这里在服务端展开    selectors: ['.article-content', '.content', 'article'],
+    selectors: ['#paragraph', '.post_content'],
+    selectors: ['#main-content', '.entry-content', 'article'],
+    selectors: ['.about_at', '.contentbox', 'article'],
+    selectors: ['.article-content', '.article-body', 'article'],
+    selectors: ['.detail-content', '.article_content', 'article'],
+    selectors: ['.article', '#main-content', 'article'],
+
     async parse(text, ctx) {
       const ids = JSON.parse(text) || [];
       const out = [];

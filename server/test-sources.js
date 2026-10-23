@@ -54,7 +54,7 @@ const ctx = {
         const target = items[0];
         try {
           const page = await fetchRaw(target.url, { Referer: new URL(target.url).origin });
-          const art = extractArticle(page.text, { title: target.title, baseUrl: page.finalUrl });
+          const art = extractArticle(page.text, { title: target.title, baseUrl: page.finalUrl, selectors: s.selectors });
           const t = art ? art.textLength : 0;
           console.log(`  抓正文: ${art ? '✓ ' + t + ' 字' : '✗ 抽不出（会退回整页去噪版）'}`);
           if (art) {

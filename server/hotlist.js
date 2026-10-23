@@ -13,12 +13,16 @@
 const http = require('http');
 const https = require('https');
 const { SOURCES, getSource, parseList, UA_DESKTOP } = require('./sources.js');
+
+// 备选 UA：有些站点的 WAF 会把「完整 Chrome UA 但没有 client hints」的请求判成机器人
+// （阮一峰就是：长 UA 403，短 UA 200）。403 时换一个 UA 再试一次。
+const UA_ALT = 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/126.0 Safari/537.36';
 const { extractArticle, stripNoiseOnly } = require('./htmlish.js');
 
 const TICK_MS = 60 * 1000;
 
 /** 抓一个 URL 的原始文本（跟随重定向、不压缩） */
-function fetchText(url, headers, timeoutMs) {
+function fetchText(url, headers, timeoutMs, ua) {
   return new Promise((resolve, reject) => {
     let u;
     try { u = new URL(url); } catch { return reject(new Error('网址格式不对')); }
@@ -26,7 +30,8 @@ function fetchText(url, headers, timeoutMs) {
     const mod = u.protocol === 'https:' ? https : http;
     const req = mod.get(u, {
       headers: Object.assign({
-        'User-Agent': UA_DESKTOP,
+        'User-Agent': ua || UA_DESKTOP,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'Accept-Encoding': 'identity'
       }, headers || {}),
@@ -39,7 +44,14 @@ function fetchText(url, headers, timeoutMs) {
         try { next = new URL(res.headers.location, u).toString(); } catch { return reject(new Error('重定向地址不对')); }
         return fetchText(next, headers, timeoutMs).then(resolve, reject);
       }
-      if (code >= 400) { res.resume(); return reject(new Error('对方返回 HTTP ' + code)); }
+      if (code >= 400) {
+        res.resume();
+        // 403 多半是 UA 被判成机器人，换一个 UA 再试一次
+        if (code === 403 && (!ua || ua !== UA_ALT)) {
+          return fetchText(url, headers, timeoutMs, UA_ALT).then(resolve, reject);
+        }
+        return reject(new Error('对方返回 HTTP ' + code));
+      }
       const chunks = [];
       let size = 0;
       res.on('data', (c) => {
@@ -132,7 +144,11 @@ class HotListEngine {
             if (saved) result.saved.push(saved);
             else result.skipped.push({ title: item.title, url: item.url, why: '抓取失败' });
           } catch (e) {
-            result.errors.push({ title: item.title, url: item.url, error: (e && e.message) || String(e) });
+            if (e && e.skip) {
+              result.skipped.push({ title: item.title, url: item.url, why: '没有正文' });
+            } else {
+              result.errors.push({ title: item.title, url: item.url, error: (e && e.message) || String(e) });
+            }
           }
         }
       };
@@ -169,10 +185,19 @@ class HotListEngine {
     let html = null;
     let extracted = false;
     try {
-      const art = extractArticle(page.text, { title, baseUrl: page.finalUrl });
+      const art = extractArticle(page.text, { title, baseUrl: page.finalUrl, selectors: source.selectors });
       if (art) { html = art.html; extracted = true; }
     } catch { /* 抽不出来就退回整页去噪版 */ }
-    if (!html) html = stripNoiseOnly(page.text, { title, baseUrl: page.finalUrl });
+    if (!html) {
+      // 有些来源（论坛帖、知乎回答）抽不到正文就等于没内容，
+      // 存下来是个空页面，不如跳过 —— 但要告诉调用方"这篇不要"
+      if (source.requireContent) {
+        const e = new Error('抽不到正文（页面本身可能就没有正文）');
+        e.skip = true;
+        throw e;
+      }
+      html = stripNoiseOnly(page.text, { title, baseUrl: page.finalUrl });
+    }
 
     const meta = hooks.persistPage({
       html,

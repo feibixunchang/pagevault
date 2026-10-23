@@ -140,40 +140,142 @@ function stripNoise(el) {
   for (const c of el.children) stripNoise(c);
 }
 
+// class/id 里带这些词的，多半是正文容器
+const CONTENT_WORDS = /(content|article|post|entry|markdown|topic|main|body|articlebody|story)/i;
+// 带这些词的，是评论/回复/导航/元信息
+const NOISE_CLASS_WORDS = /(comment|reply|replies|sidebar|footer|header|nav|share|meta|toolbar|pager|pagination|tag|tags|count|views|avatar|related|recommend|sponsor|promo|ad-|ads-|banner)/i;
+
+/** 元素自己的 class+id */
+function attrKey(el) {
+  return ((el.attrs && el.attrs.class) || '').toLowerCase() + ' ' + ((el.attrs && el.attrs.id) || '').toLowerCase();
+}
+
 /** 给一个块打分：文字越多越好，链接文字占比越高越像导航 */
 function score(el) {
   const t = textOf(el).replace(/\s+/g, ' ').trim();
-  if (t.length < 120) return 0;
+  if (t.length < 25) return 0;
   const links = linkTextOf(el).replace(/\s+/g, ' ').trim();
   const linkRatio = links.length / Math.max(1, t.length);
-  return t.length * (1 - Math.min(0.9, linkRatio));
+  if (linkRatio > 0.5) return 0;   // 一半以上是链接 → 导航/列表，不是正文
+  let s = t.length * (1 - linkRatio);
+  const key = attrKey(el);
+  if (NOISE_CLASS_WORDS.test(key)) s *= 0.2;
+  else if (CONTENT_WORDS.test(key)) s *= 1.3;
+  return s;
 }
 
-/** 找出正文块：得分最高的元素；如果某个子元素分数接近父元素，就继续往下钻 */
-function findContent(root) {
-  let best = null;
-  let bestScore = 0;
+/** 链接占比（用来判断是不是导航/列表） */
+function linkDensity(el) {
+  const t = textOf(el).replace(/\s+/g, ' ').trim();
+  if (!t.length) return 1;
+  return linkTextOf(el).replace(/\s+/g, ' ').trim().length / t.length;
+}
+
+/** 简单选择器：tag / .class / #id / tag.class */
+function findBySelector(root, sel) {
+  sel = String(sel || '').trim();
+  if (!sel) return null;
+  const m = sel.match(/^([a-zA-Z][\w-]*)?((?:[.#][\w-]+)*)$/);
+  if (!m) return null;
+  const tag = (m[1] || '').toLowerCase();
+  const rest = m[2] || '';
+  const classes = (rest.match(/\.([\w-]+)/g) || []).map(x => x.slice(1).toLowerCase());
+  const ids = (rest.match(/#([\w-]+)/g) || []).map(x => x.slice(1).toLowerCase());
+  let found = null;
+  const walk = (el) => {
+    if (found) return;
+    if (el.tag !== '#text') {
+      const cls = String((el.attrs && el.attrs.class) || '').toLowerCase();
+      const id = String((el.attrs && el.attrs.id) || '').toLowerCase();
+      const okTag = !tag || el.tag === tag;
+      const okCls = classes.every(c => cls.split(/\s+/).includes(c));
+      const okId = ids.every(i => id === i);
+      if (okTag && okCls && okId) { found = el; return; }
+    }
+    for (const c of el.children) { walk(c); if (found) return; }
+  };
+  walk(root);
+  return found;
+}
+
+/** 往上找：最近的、内容感很强的祖先（找不到就返回 parent） */
+function contentAncestor(root, el) {
+  const chain = [];
+  const build = (node, path) => {
+    for (const c of node.children) {
+      if (c === el) { chain.push(path.concat([c])); return true; }
+      if (build(c, path.concat([c]))) return true;
+    }
+    return false;
+  };
+  build(root, []);
+  if (!chain.length) return null;
+  const path = chain[0];
+  // 从 el 往上找（跳过 el 自己）
+  for (let i = path.length - 2; i >= 0; i--) {
+    const node = path[i];
+    if (node.tag === 'body' || node.tag === '#root') break;
+    if (CONTENT_WORDS.test(attrKey(node))) return node;
+  }
+  return path.length >= 2 ? path[path.length - 2] : el;
+}
+
+/** 收集容器里的「块」：最外层优先，收下一个就不再往下钻 */
+function collectBlocks(el, out) {
+  for (const c of el.children) {
+    if (c.tag === '#text') continue;
+    if (isNoise(c)) continue;
+    const t = textOf(c).replace(/\s+/g, ' ').trim();
+    if (t.length >= 25) {
+      if (linkDensity(c) <= 0.5) { out.push(c); continue; }
+    }
+    collectBlocks(c, out);
+  }
+}
+
+/**
+ * 找出正文块。
+ * 关键点：按**段落**打分，而不是按"整页文字最多的容器"——
+ * 论坛页（V2EX）一页有 200 多条回复，整页文字最多的当然是回复区，
+ * 早先就是栽在这儿，抓回来的全是「某某 13 小时前」这种回帖列表。
+ */
+function findContent(root, selectors) {
+  // A) 站点指定的正文容器优先（最准）
+  if (selectors && selectors.length) {
+    for (const sel of selectors) {
+      const el = findBySelector(root, sel);
+      if (!el) continue;
+      const t = textOf(el).replace(/\s+/g, ' ').trim();
+      if (t.length >= 120) return { el, score: t.length, mode: 'selector:' + sel };
+    }
+  }
+
+  // B) 段落级打分
+  const nodes = [];
   const walk = (el) => {
     if (el.tag === '#text') return;
     const s = score(el);
-    if (s > bestScore) { bestScore = s; best = el; }
-    for (const c of el.children) if (c.tag !== '#text') walk(c);
+    if (s > 0) nodes.push({ el, score: s, text: textOf(el).replace(/\s+/g, ' ').trim() });
+    for (const c of el.children) walk(c);
   };
   walk(root);
-  if (!best) return null;
+  if (!nodes.length) return null;
+  nodes.sort((a, b) => b.score - a.score);
+  const top = nodes[0];
 
-  // 往下钻：如果子块分数几乎等于父块，说明正文就在子块里
-  let cur = best;
-  for (let i = 0; i < 6; i++) {
-    let next = null;
-    for (const c of cur.children) {
-      if (c.tag === '#text') continue;
-      if (score(c) >= bestScore * 0.88) { next = c; break; }
-    }
-    if (!next) break;
-    cur = next;
-  }
-  return { el: cur, score: bestScore };
+  // 容器：top 所在的「内容感强的祖先」，没有就用它的父节点
+  const container = contentAncestor(root, top.el) || top.el;
+  const picked = [];
+  collectBlocks(container, picked);
+  if (!picked.length) picked.push(top.el);
+
+  const text = picked.map(p => textOf(p)).join(' ').replace(/\s+/g, ' ').trim();
+  return {
+    el: { tag: 'div', attrs: {}, children: picked, text: '' },
+    score: top.score,
+    text,
+    mode: 'auto'
+  };
 }
 
 /** 把树还原成 HTML */
@@ -212,12 +314,12 @@ function extractArticle(html, opts) {
   const tree = parse(bodyOnly(html));
   stripNoise(tree);
 
-  const found = findContent(tree);
+  const found = findContent(tree, o.selectors);
   if (!found) return null;
 
   // 门槛看**文字长度**，不要看分数：正文里链接多（比如新闻里的外链）会拉低分数，
   // 早先拿分数当门槛，结果 IT之家这种正文直接被判成"抽不出来"。
-  const text = textOf(found.el).replace(/\s+/g, ' ').trim();
+  const text = (found.text || textOf(found.el)).replace(/\s+/g, ' ').trim();
   if (text.length < 200) return null;
 
   // 把相对地址补成绝对地址，否则图片会裂
@@ -259,8 +361,15 @@ function stripNoiseOnly(html, opts) {
     + '<style>body{margin:0;}</style></head><body>' + inner + '</body></html>';
 }
 
-/** 把 src/href 里的相对地址补全 */
+/** 把 src/href 里的相对地址补全，顺手把懒加载的真实图片地址换上去 */
 function absolutize(html, baseUrl) {
+  // 懒加载：<img src="占位图" data-original="真地址">
+  html = html.replace(/\b(src|data-src|data-original)\s*=\s*"([^"]*)"(\s+data-original\s*=\s*"[^"]*")?/gi,
+    (mm, attr, val, extra) => {
+      const real = extra && extra.match(/data-original\s*=\s*"([^"]*)"/);
+      if (real && real[1]) return 'src="' + real[1] + '"';
+      return mm;
+    });
   if (!baseUrl) return html;
   return html.replace(/\b(src|href|poster|data-src)="([^"]+)"/gi, (mm, attr, val) => {
     if (!val || /^(https?:|data:|blob:|\/\/|#|mailto:)/i.test(val)) return mm;
@@ -271,4 +380,4 @@ function absolutize(html, baseUrl) {
   });
 }
 
-module.exports = { parse, extractArticle, stripNoiseOnly, textOf, serialize, score, findContent, stripNoise, linkTextOf, isNoise };
+module.exports = { parse, extractArticle, stripNoiseOnly, textOf, serialize, score, findContent, stripNoise, linkTextOf, isNoise, findBySelector, linkDensity };
