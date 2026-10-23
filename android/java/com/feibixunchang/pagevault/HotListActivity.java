@@ -2,15 +2,11 @@ package com.feibixunchang.pagevault;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.Button;
-import android.widget.EditText;
-import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -30,8 +26,6 @@ public class HotListActivity extends Activity {
 
     private ListView list;
     private TextView status;
-    private LinearLayout cookieBox;
-    private EditText cookieInput;
     private final List<JSONObject> sources = new ArrayList<>();
     private String cookieDraft = "";
     private String cookieSourceId = "";
@@ -45,8 +39,6 @@ public class HotListActivity extends Activity {
 
         list = findViewById(R.id.hotList);
         status = findViewById(R.id.hotStatus);
-        cookieBox = findViewById(R.id.hotCookieBox);
-        cookieInput = findViewById(R.id.hotCookieInput);
 
         findViewById(R.id.btnBack).setOnClickListener(v -> finish());
         findViewById(R.id.btnPullAll).setOnClickListener(v -> pullAll());
@@ -113,8 +105,14 @@ public class HotListActivity extends Activity {
         String id = s.optString("id");
         int limit = s.optInt("limit", 5);
         status.setText(getString(R.string.hot_pulling, s.optString("name", "")));
-        Api.async("POST", "/api/sources/" + id + "/pull",
-                new JSONObject().put("limit", limit).toString(),
+        String payload;
+        try {
+            payload = new JSONObject().put("limit", limit).toString();
+        } catch (Exception e) {
+            status.setText(String.valueOf(e.getMessage()));
+            return;
+        }
+        Api.async("POST", "/api/sources/" + id + "/pull", payload,
                 r -> {
                     if (!r.ok()) {
                         status.setText(getString(R.string.load_fail, r.error != null ? r.error : ("HTTP " + r.code)));
