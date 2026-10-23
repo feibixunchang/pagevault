@@ -20,6 +20,8 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                ReaderStyleControls()
+
                 Section {
                     TextField("http://192.168.100.3:8731", text: $store.serverURLString)
                         .textInputAutocapitalization(.never)

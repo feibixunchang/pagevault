@@ -14,18 +14,93 @@ final class Store: ObservableObject {
         didSet { UserDefaults.standard.set(serverURLString, forKey: Keys.serverURL) }
     }
 
+    // MARK: - 外观与阅读偏好（全部落 UserDefaults，改了立即生效）
+
+    @Published var theme: AppTheme {
+        didSet { persist(theme.rawValue, Keys.theme) }
+    }
+    @Published var readerMode: Bool {
+        didSet { persist(readerMode, Keys.readerMode) }
+    }
+    @Published var fontSize: Double {
+        didSet { persist(fontSize, Keys.fontSize) }
+    }
+    @Published var readerFont: ReaderFont {
+        didSet { persist(readerFont.rawValue, Keys.readerFont) }
+    }
+
+    /// 调试启动参数改的偏好不写盘，免得污染用户真实设置
+    private var suppressPersist = false
+    private func persist(_ value: Any, _ key: String) {
+        if suppressPersist { return }
+        UserDefaults.standard.set(value, forKey: key)
+    }
+
     private enum Keys {
         static let serverURL = "pv.serverURL"
+        static let theme = "pv.theme"
+        static let readerMode = "pv.readerMode"
+        static let fontSize = "pv.fontSize"
+        static let readerFont = "pv.readerFont"
     }
+
+    /// 可选字号档位（正文基准 px）
+    struct FontSizeOption: Identifiable {
+        let value: Double
+        let label: String
+        var id: Double { value }
+    }
+
+    static let fontSizes: [FontSizeOption] = [
+        FontSizeOption(value: 15, label: "小"),
+        FontSizeOption(value: 17, label: "标准"),
+        FontSizeOption(value: 19, label: "大"),
+        FontSizeOption(value: 21, label: "特大"),
+        FontSizeOption(value: 24, label: "超大")
+    ]
 
     /// 默认指向家里 NAS（局域网内最快）；换地址在设置里改
     static let defaultServerURL = "http://192.168.100.3:8731"
 
     init() {
-        let saved = UserDefaults.standard.string(forKey: Keys.serverURL)
+        let d = UserDefaults.standard
+        let saved = d.string(forKey: Keys.serverURL)
         serverURLString = (saved?.isEmpty == false ? saved! : Store.defaultServerURL)
+
+        theme = AppTheme(rawValue: d.string(forKey: Keys.theme) ?? "") ?? .auto
+        // 默认开「只显示正文」：整页 HTML 里导航侧栏太多，手机上放大只会更难看
+        readerMode = d.object(forKey: Keys.readerMode) as? Bool ?? true
+        let size = d.double(forKey: Keys.fontSize)
+        fontSize = size > 0 ? size : 17
+        readerFont = ReaderFont(rawValue: d.string(forKey: Keys.readerFont) ?? "") ?? .system
+
         let cached = Cache.shared.loadIndex()
         if !cached.isEmpty { pages = cached }
+
+        #if DEBUG
+        // 命令行验证界面用（suppressPersist 保证不写盘）：
+        //   -- -pvTheme dark -pvFontSize 24 -pvFont songti [-- -pvOriginal]
+        suppressPersist = true
+        let args = ProcessInfo.processInfo.arguments
+        func value(_ flag: String) -> String? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            return args[i + 1]
+        }
+        if let t = value("-pvTheme"), let v = AppTheme(rawValue: t) { theme = v }
+        if let s = value("-pvFontSize"), let v = Double(s) { fontSize = v }
+        if let f = value("-pvFont"), let v = ReaderFont(rawValue: f) { readerFont = v }
+        if args.contains("-pvOriginal") { readerMode = false }
+        suppressPersist = false
+        #endif
+    }
+
+    /// 传给阅读页的样式快照
+    var readerStyle: ReaderStyle {
+        ReaderStyle(reader: readerMode, fontSize: fontSize, font: readerFont, isDark: theme.isDark)
+    }
+
+    var fontSizeLabel: String {
+        Store.fontSizes.first { $0.value == fontSize }?.label ?? "\(Int(fontSize))"
     }
 
     var api: APIClient? { APIClient(serverURL: serverURLString) }

@@ -5,7 +5,7 @@
 // opens a native window rendering the reader UI. The browser extension talks to the
 // same localhost:8731 endpoint, so all six ends share one protocol.
 
-const { app, BrowserWindow, nativeTheme, Menu, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, nativeTheme, Menu, shell, ipcMain, dialog } = require('electron');
 const { fork } = require('child_process');
 const fs = require('fs');
 const net = require('net');
@@ -34,15 +34,7 @@ function installExtension() {
 
 // 本地化应用菜单（跟随系统语言；设置里选的语言下次启动生效——启动时读 prefs.json）
 function buildMenu() {
-  let langPref = 'system';
-  try {
-    const prefsPath = path.join(app.getPath('userData'), 'prefs.json');
-    if (fs.existsSync(prefsPath)) {
-      const p = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
-      if (p && p.lang) langPref = p.lang;
-    }
-  } catch { /* 读不到用系统语言 */ }
-  const zh = langPref === 'zh' || (langPref === 'system' && app.getLocale().toLowerCase().startsWith('zh'));
+  const { zh } = uiLang();
   const appName = zh ? '网页收藏' : 'Web Vault';
   const L = zh ? {
     app: appName, about: '关于' + appName, quit: '退出' + appName,
@@ -88,10 +80,57 @@ let serverRestarts = 0;
 // ---------- 自动更新 ----------
 // 版本探测走 github.com 的 302 Location（不依赖 API）；下载多渠道测速选最快。
 const updater = new Updater({ currentVersion: app.getVersion() });
+const promptedVersions = new Set();   // 同一个版本只弹一次原生提示，别反复骚扰
+let lastCheckAt = 0;
+
 updater.onEvent((st) => {
   log('updater event:', st.status, st.remoteVersion || '', st.error || '');
   if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('updater:event', st);
+  // 以前只把"有新版本"塞进页面里的小入口，很容易被忽略——改成系统弹窗，
+  // 一眼就能看见，点「立即更新」直接进入测速下载流程。
+  if (st.status === 'available' && st.remoteVersion) promptUpdate(st.remoteVersion);
 });
+
+function uiLang() {
+  let langPref = 'system';
+  try {
+    const prefsPath = path.join(app.getPath('userData'), 'prefs.json');
+    if (fs.existsSync(prefsPath)) {
+      const p = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
+      if (p && p.lang) langPref = p.lang;
+    }
+  } catch { /* 读不到就用系统语言 */ }
+  const zh = langPref === 'zh' || (langPref === 'system' && app.getLocale().toLowerCase().startsWith('zh'));
+  return { langPref, zh };
+}
+
+function promptUpdate(tag) {
+  if (promptedVersions.has(tag)) return;
+  promptedVersions.add(tag);
+  const { zh } = uiLang();
+  const remote = String(tag).replace(/^v/, '');
+  const local = app.getVersion();
+  dialog.showMessageBox(mainWin && !mainWin.isDestroyed() ? mainWin : null, {
+    type: 'info',
+    buttons: zh ? ['立即更新', '稍后'] : ['Update Now', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+    title: zh ? '发现新版本' : 'Update available',
+    message: zh ? `网页收藏 ${local} → ${remote}` : `WebVault ${local} → ${remote}`,
+    detail: zh
+      ? '更新会先测速挑最快的下载渠道，下载完成后自动替换并重启，收藏数据不受影响。'
+      : 'It will test download mirrors, pick the fastest, then replace and relaunch. Your saved pages are kept.'
+  }).then(({ response }) => {
+    if (response !== 0) return;
+    if (mainWin && !mainWin.isDestroyed()) {
+      if (mainWin.isMinimized()) mainWin.restore();
+      mainWin.show();
+      mainWin.focus();
+      mainWin.webContents.send('updater:open-panel', tag);
+    }
+  }).catch(() => { /* 用户关掉弹窗就当他选了稍后 */ });
+}
 
 function readPref(key, dflt) {
   try {
@@ -118,18 +157,47 @@ function setupUpdaterIPC() {
   });
 
   ipcMain.handle('updater:install', async (_e, zipPath) => {
-    const r = await updater.install(zipPath, {});
+    // 就地升级：装到"当前正在运行的这份"所在位置。
+    // 原来 Windows 端写死 %LOCALAPPDATA%\Programs\WebVault，从别处解压运行的会把新版装到
+    // 另一个目录、再启动一个新副本，旧的一直留着——用户就感觉"更新没生效"。
+    const opts = {};
+    if (process.platform === 'win32') {
+      opts.targetDir = path.dirname(process.execPath);
+    } else if (process.platform === 'darwin') {
+      const m = process.execPath.match(/^(.*?\.app)\/Contents\/MacOS\//);
+      opts.targetApp = m ? m[1] : path.join(os.homedir(), 'Applications', '网页收藏.app');
+    }
+    const r = await updater.install(zipPath, opts);
+    // 覆盖安装后必须真的退出：macOS 的 open 会激活"已在运行的旧进程"，
+    // 不退出的话点完更新界面没变化，用户会以为没装上。
+    setTimeout(() => { quitting = true; app.quit(); }, 1200);
     return r;
   });
 
   ipcMain.handle('updater:version', () => app.getVersion());
 
-  // 启动 5 秒后自动检查一次（设置里可关：prefs.autoUpdate === false）
+  // 启动后自动检查：失败会重试（开机后网络常常还没起来），之后每 6 小时再查一次
   const auto = readPref('autoUpdate', true);
   log('autoUpdate pref =', auto);
   if (auto) {
-    setTimeout(() => { updater.checkLatest(); }, 5000);
+    setTimeout(() => { checkWithRetry(); }, 4000);
+    const timer = setInterval(() => { checkWithRetry(); }, 6 * 3600 * 1000);
+    if (timer.unref) timer.unref();
   }
+}
+
+/// 带回退重试的检查：GitHub 首次请求经常因为刚开机没网 / 代理没起来失败，
+/// 而原来失败是**完全静默**的——用户只看到"没有提示"，以为功能不存在。
+async function checkWithRetry() {
+  const delays = [0, 8000, 30000];
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i]) await new Promise(r => setTimeout(r, delays[i]));
+    const tag = await updater.checkLatest();
+    lastCheckAt = Date.now();
+    if (tag) return tag;                 // 成功（含"已是最新"）就不再重试
+  }
+  log('update check failed after retries');
+  return null;
 }
 
 function checkForUpdatesFromMenu() {
@@ -313,6 +381,12 @@ function createWindow(url) {
     return { action: 'deny' };
   });
   win.on('closed', () => {});
+  // 长时间挂着（笔记本合盖一晚上）后再回到应用，顺手补一次检查，别等到 6 小时定时器
+  win.on('focus', () => {
+    if (readPref('autoUpdate', true) === false) return;
+    if (lastCheckAt && Date.now() - lastCheckAt < 2 * 3600 * 1000) return;
+    checkWithRetry();
+  });
   return win;
 }
 
