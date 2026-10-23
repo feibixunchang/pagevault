@@ -200,12 +200,12 @@ DESCOEF
 DEB_DEPS="libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, libasound2 | libasound2t64"
 
 if command -v dpkg-deb >/dev/null 2>&1; then
-  rm -rf "$BUILD/debctl"
-  mkdir -p "$BUILD/debctl"
-  cp "$BUILD/postinst" "$BUILD/debctl/postinst"
-  chmod 755 "$BUILD/debctl/postinst"
-  ( cd "$STAGE" && find . -type f ! -path './DEBIAN/*' -printf '%P\n' | sort | xargs -r md5sum > "$BUILD/debctl/md5sums" ) 2>/dev/null || true
-  cat > "$BUILD/debctl/control" <<EOF
+  # dpkg-deb 要求元数据在包根的 DEBIAN/ 里（不是外部目录），且该目录不会被打进 data.tar
+  rm -rf "$STAGE/DEBIAN"
+  mkdir -p "$STAGE/DEBIAN"
+  cp "$BUILD/postinst" "$STAGE/DEBIAN/postinst"
+  chmod 755 "$STAGE/DEBIAN/postinst"
+  cat > "$STAGE/DEBIAN/control" <<EOF
 Package: webvault
 Version: $VER
 Section: utils
@@ -219,6 +219,12 @@ Homepage: https://github.com/feibixunchang/pagevault
 Description: 网页收藏 — 网页存档与多端同步
 $(sed 's/^/ /' "$BUILD/desc.txt" | sed 's/^ $/ ./')
 EOF
+  # md5sums 的路径必须相对于包根（不带 ./ 前缀），且不含 DEBIAN 自身
+  ( cd "$STAGE" && find . -path ./DEBIAN -prune -o -type f -print0 \
+      | sort -z \
+      | while IFS= read -r -d '' f; do
+          printf '%s  %s\n' "$(md5sum "$f" | cut -d' ' -f1)" "${f#./}"
+        done > DEBIAN/md5sums )
   rm -f "$DEB"
   dpkg-deb --root-owner-group -Zxz --build "$STAGE" "$DEB" >/dev/null
   echo "deb: $DEB (dpkg-deb)"
@@ -258,6 +264,8 @@ AutoReqProv:    no
 rm -rf %{buildroot}
 mkdir -p %{buildroot}/opt/WebVault
 cp -a $OUT/. %{buildroot}/opt/WebVault/
+# Electron 官方 zip 里这个文件不一定是 setuid；Chromium 沙箱要求 root:root + 4755
+chmod 4755 %{buildroot}/opt/WebVault/chrome-sandbox
 mkdir -p %{buildroot}/usr/bin
 ln -sf /opt/WebVault/webvault %{buildroot}/usr/bin/webvault
 mkdir -p %{buildroot}/usr/share/applications
@@ -278,11 +286,11 @@ if [ -x /usr/bin/update-desktop-database ]; then update-desktop-database -q /usr
 if [ -x /usr/bin/gtk-update-icon-cache ]; then gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || :; fi
 
 %files
+# chrome-sandbox 的 4755 权限由 buildroot 里文件本身的属性带进去（%install 阶段已 chmod），
+# 这里不再单独 %attr 声明——同一路径列两次 rpm 会判重复，反而容易把权限弄回 755。
 /opt/WebVault
-%attr(4755,root,root) /opt/WebVault/chrome-sandbox
 /usr/bin/webvault
 /usr/share/applications/webvault.desktop
-%dir /usr/share/icons/hicolor
 /usr/share/icons/hicolor/*/apps/webvault.png
 
 %changelog
