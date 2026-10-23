@@ -14,6 +14,7 @@
 		226E0500494923F305FD35B6 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67AB346C01716E98EEDBBAF7 /* Models.swift */; };
 		3D5E893352B5D3F477C43BAB /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29B222E4A6B9A27484CD88F7 /* ReaderView.swift */; };
 		5B2B9A555F9874E7F5ADF87A /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 933328C4F1AD43ADB448136F /* Store.swift */; };
+		6518BC372E89408B3BAC7B43 /* NetworkInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43D1E5A1EA42DB2BC4EBB22A /* NetworkInfo.swift */; };
 		B779DEE0FD2875A35AABB7AC /* Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01BD8E4E6BB2E067D5DD1331 /* Cache.swift */; };
 		CFB48AE7D1642D99BD408439 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E078898BA61D7880A43C6EFE /* APIClient.swift */; };
 /* End PBXBuildFile section */
@@ -22,6 +23,7 @@
 		01BD8E4E6BB2E067D5DD1331 /* Cache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cache.swift; sourceTree = "<group>"; };
 		06B00866292B30FA763D913D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		29B222E4A6B9A27484CD88F7 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
+		43D1E5A1EA42DB2BC4EBB22A /* NetworkInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkInfo.swift; sourceTree = "<group>"; };
 		541657F72ECA416DCCF6D088 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		67AB346C01716E98EEDBBAF7 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		7695A961041FA6708EE4C540 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -41,6 +43,7 @@
 				01BD8E4E6BB2E067D5DD1331 /* Cache.swift */,
 				E8BE4F314C082F2F76E913C3 /* Info.plist */,
 				67AB346C01716E98EEDBBAF7 /* Models.swift */,
+				43D1E5A1EA42DB2BC4EBB22A /* NetworkInfo.swift */,
 				B11FF8EEB3672C515E0519CF /* PageVaultApp.swift */,
 				29B222E4A6B9A27484CD88F7 /* ReaderView.swift */,
 				541657F72ECA416DCCF6D088 /* RootView.swift */,
@@ -97,6 +100,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					98A3DEC4C5334B8A5827507C = {
+						DevelopmentTeam = 6B8ND5JK75;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -139,6 +143,7 @@
 				CFB48AE7D1642D99BD408439 /* APIClient.swift in Sources */,
 				B779DEE0FD2875A35AABB7AC /* Cache.swift in Sources */,
 				226E0500494923F305FD35B6 /* Models.swift in Sources */,
+				6518BC372E89408B3BAC7B43 /* NetworkInfo.swift in Sources */,
 				011948A75FF729F71ACAAC54 /* PageVaultApp.swift in Sources */,
 				3D5E893352B5D3F477C43BAB /* ReaderView.swift in Sources */,
 				1E94B2A2651A2AB5FF7A4CD4 /* RootView.swift in Sources */,
@@ -216,6 +221,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6B8ND5JK75;
 				INFOPLIST_FILE = PageVault/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -237,6 +243,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6B8ND5JK75;
 				INFOPLIST_FILE = PageVault/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

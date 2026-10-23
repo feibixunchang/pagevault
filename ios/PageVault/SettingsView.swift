@@ -7,6 +7,9 @@ struct SettingsView: View {
     @State private var testing = false
     @State private var testResult: (ok: Bool, message: String)?
     @State private var cacheText = ""
+    @State private var wifiIP: String?
+
+    private var serverHost: String? { NetworkInfo.host(of: store.serverURLString) }
 
     private var appVersion: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
@@ -74,6 +77,36 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    LabeledContent("手机 Wi-Fi") {
+                        if let ip = wifiIP {
+                            Text(ip).font(.system(size: 15, design: .monospaced))
+                        } else {
+                            Text(NetworkInfo.hasCellular() ? "未连接 Wi-Fi（在用蜂窝数据）" : "未连接")
+                                .foregroundColor(.orange)
+                        }
+                    }
+                    LabeledContent("服务端主机") {
+                        Text(serverHost ?? "—").font(.system(size: 15, design: .monospaced))
+                    }
+                    if let ip = wifiIP, let host = serverHost {
+                        if host.rangeOfCharacter(from: CharacterSet.letters) != nil {
+                            Text("服务端是域名，走公网解析，不受手机网段影响。")
+                                .font(.footnote).foregroundColor(.secondary)
+                        } else if NetworkInfo.sameSubnet(ip, host) {
+                            Text("同一网段，可以直接连。")
+                                .font(.footnote).foregroundColor(.green)
+                        } else {
+                            Text("不在同一网段（手机 \(ip) / 服务端 \(host)），检查手机是不是连了别的 Wi-Fi。")
+                                .font(.footnote).foregroundColor(.red)
+                        }
+                    }
+                } header: {
+                    Text("网络诊断")
+                } footer: {
+                    Text("手机要和服务端在同一个 Wi-Fi 下。首次打开时必须允许「本地网络」，拒绝后就只能看到「访问不到本地网络」，去 设置 → 网页收藏 里重新打开。")
+                }
+
+                Section {
                     LabeledContent("收藏条数", value: "\(store.pages.count)")
                     LabeledContent("星标", value: "\(store.starredCount)")
                     LabeledContent("离线缓存", value: cacheText)
@@ -105,7 +138,10 @@ struct SettingsView: View {
                     Button("完成") { dismiss() }
                 }
             }
-            .onAppear { cacheText = store.cacheSizeText }
+            .onAppear {
+                cacheText = store.cacheSizeText
+                wifiIP = NetworkInfo.wifiIPv4()
+            }
         }
     }
 }

@@ -71,7 +71,9 @@ final class APIClient {
         case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed:
             return "找不到这个地址，检查是不是填错了"
         case NSURLErrorNotConnectedToInternet:
-            return "手机当前没有网络"
+            // iOS 把「没连网」和「本地网络权限被拒」都归到 -1009，光看错误分不清，
+            // 所以这里把两种可能都写出来，别让人以为是手机断网了。
+            return "访问不到本地网络：确认手机连的是同一个 Wi-Fi，并在 设置 → 网页收藏 里打开「本地网络」"
         case NSURLErrorAppTransportSecurityRequiresSecureConnection:
             return "被系统安全策略拦截了（http 明文访问）"
         default:
