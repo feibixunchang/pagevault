@@ -15,7 +15,7 @@ const { createProvider } = require('./providers');
 const { zipStore, zipRead } = require('./zip');
 const { attachWebSocket } = require('./extws');
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
