@@ -51,6 +51,10 @@ struct RootView: View {
                 if store.pages.isEmpty { await store.refresh() }
                 openDebugScreenIfRequested()
             }
+            // 导航栏标题/按钮是 UIKit 画的，得单独喂字体
+            .onAppear { refreshNavBarFont() }
+            .onChange(of: store.appType) { _ in refreshNavBarFont() }
+            .onChange(of: store.fontSize) { _ in refreshNavBarFont() }
             // 从后台切回来时静默刷新：在电脑上刚存的页面，回到手机就该看见
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 Task { await store.refresh(showSpinner: false) }
@@ -58,11 +62,19 @@ struct RootView: View {
         }
     }
 
+    private func refreshNavBarFont() {
+        NavBarFont.refresh(store.appType, scale: store.uiScale)
+    }
+
     /// 命令行验证界面用（只在 Debug 构建里编译）：
     /// `xcrun devicectl device process launch --console --device <UDID> com.feibixunchang.pagevault -pvOpenFirst`
     private func openDebugScreenIfRequested() {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
+        // 命令行验证字体下载链路：配合 -pvFont songti 用，启动即下载并注册
+        if args.contains("-pvAutoDownloadFont"), store.selectedFontNeedsDownload {
+            Task { await store.downloadFont(store.readerFont) }
+        }
         if args.contains("-pvOpenSettings") {
             showSettings = true
         } else if path.isEmpty, let first = store.pages.first {
@@ -98,7 +110,7 @@ struct RootView: View {
             Text(text).lineLimit(2)
             Spacer(minLength: 0)
         }
-        .font(.footnote)
+        .pvFont(.footnote)
         .foregroundColor(.orange)
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
@@ -136,7 +148,7 @@ struct RootView: View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(page.title.isEmpty ? page.url : page.title)
-                    .font(.system(size: 15.5, weight: .medium))
+                    .pvFont(.subheadline, weight: .medium)
                     .lineLimit(2)
                     .foregroundColor(.primary)
                 HStack(spacing: 6) {
@@ -149,7 +161,7 @@ struct RootView: View {
                         Text(page.sizeText)
                     }
                 }
-                .font(.system(size: 11.5))
+                .pvFont(.caption2)
                 .foregroundColor(.secondary)
             }
             Spacer(minLength: 0)
@@ -157,7 +169,7 @@ struct RootView: View {
                 Task { await store.toggleStar(page) }
             } label: {
                 Image(systemName: page.isStarred ? "star.fill" : "star")
-                    .font(.system(size: 17))
+                    .pvFont(.body)
                     .foregroundColor(page.isStarred ? .yellow : Color.secondary.opacity(0.45))
                     .frame(width: 38, height: 38)
                     .contentShape(Rectangle())
@@ -166,7 +178,7 @@ struct RootView: View {
             .accessibilityLabel(page.isStarred ? "取消星标" : "加星标")
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
+                .pvFont(.caption, weight: .semibold)
                 .foregroundColor(Color.secondary.opacity(0.35))
         }
         .contentShape(Rectangle())
@@ -180,19 +192,19 @@ struct RootView: View {
         } else if store.pages.isEmpty {
             VStack(spacing: 10) {
                 Image(systemName: store.errorMessage == nil ? "tray" : "wifi.exclamationmark")
-                    .font(.system(size: 38))
+                    .pvFont(.largeTitle)
                     .foregroundColor(.secondary)
                 Text(store.errorMessage == nil ? "还没有收藏" : "连不上服务端")
-                    .font(.headline)
+                    .pvFont(.headline)
                 if let err = store.errorMessage {
                     Text(err)
-                        .font(.footnote)
+                        .pvFont(.footnote)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
                 } else if store.online {
                     Text("在浏览器里装好扩展，看到想留的页面点一下就行")
-                        .font(.footnote)
+                        .pvFont(.footnote)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
@@ -201,15 +213,15 @@ struct RootView: View {
                     showSettings = true
                 } label: {
                     Label("打开设置", systemImage: "gearshape")
-                        .font(.footnote)
+                        .pvFont(.footnote)
                 }
                 .padding(.top, 2)
             }
         } else if filtered.isEmpty {
             VStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").font(.system(size: 32)).foregroundColor(.secondary)
+                Image(systemName: "magnifyingglass").pvFont(.title).foregroundColor(.secondary)
                 Text(query.isEmpty ? "没有星标页面" : "没有匹配的结果")
-                    .font(.footnote)
+                    .pvFont(.footnote)
                     .foregroundColor(.secondary)
             }
         }

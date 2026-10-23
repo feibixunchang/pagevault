@@ -54,7 +54,42 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('capture').addEventListener('click', () => doCapture(statusEl));
 
   showVersions(input.value.trim());
+  applyServerPrefs(input.value.trim());
 });
+
+// ---------- 界面字体：和桌面端、iOS 用同一套偏好 ----------
+// 偏好存在服务端（/api/prefs，{font, fontSize, bold}），拿不到就用默认样式。
+const UI_FONTS = {
+  songti: 'SimSun,"Songti SC",STSong,"Noto Serif CJK SC","Source Han Serif SC",serif',
+  kaiti: 'KaiTi,"Kaiti SC",STKaiti,"Noto Serif CJK SC","Source Han Serif SC",serif',
+  heiti: 'SimHei,"Heiti SC",STHeiti,"Noto Sans CJK SC","Source Han Sans SC",sans-serif',
+  yuanti: '"Yuanti SC",YouYuan,"Hiragino Maru Gothic ProN","Noto Sans CJK SC",sans-serif',
+  yahei: '"Microsoft YaHei","Microsoft YaHei UI","PingFang SC",sans-serif',
+  pingfang: '"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC",sans-serif',
+  mono: '"SF Mono",SFMono-Regular,Menlo,Consolas,"Courier New",monospace'
+};
+const UI_ZOOM = { s: 0.9, m: 1, l: 1.1, xl: 1.22 };
+
+async function applyServerPrefs(serverUrl) {
+  let p = null;
+  try {
+    const r = await fetch((serverUrl || DEFAULT_SERVER).replace(/\/$/, '') + '/api/prefs');
+    p = await r.json();
+  } catch { return; }            // 服务端没开就保持默认
+  if (!p || typeof p !== 'object') return;
+
+  const body = document.body;
+  if (UI_FONTS[p.font]) body.style.fontFamily = UI_FONTS[p.font];
+  const bold = p.bold === true || p.bold === '1';
+  body.style.fontWeight = bold ? '600' : '';
+
+  // 字号：popup 宽度是写死的 280px，先按比例把逻辑宽度放大再整体 zoom，看起来才是"同比例变大"
+  const zoom = UI_ZOOM[p.fontSize] || 1;
+  if (zoom !== 1) {
+    body.style.zoom = zoom;
+    body.style.width = Math.round(280 / zoom) + 'px';
+  }
+}
 
 // 版本号：扩展自身来自 manifest，阅读器版本从心跳接口取
 async function showVersions(serverUrl) {

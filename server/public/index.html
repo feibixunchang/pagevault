@@ -45,7 +45,13 @@
   html[data-font="yahei"]   { --app-font: "Microsoft YaHei", "Microsoft YaHei UI", "PingFang SC", sans-serif; }
   html[data-font="pingfang"]{ --app-font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif; }
   html[data-font="mono"]    { --app-font: "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace; }
-  body { margin:0; font-family:var(--app-font); color:var(--text); background:var(--bg); height:calc(100vh / var(--app-zoom)); zoom:var(--app-zoom); display:flex; flex-direction:column; }
+  /* 界面粗体：整界面文字加粗；阅读模式的正文也同步加粗 */
+  :root { --app-fw: 400; }
+  html[data-bold="1"] { --app-fw: 600; }
+  html[data-bold="1"] .item .t,
+  html[data-bold="1"] header h1,
+  html[data-bold="1"] #settingsPanel h2 { font-weight: 700; }
+  body { margin:0; font-family:var(--app-font); font-weight:var(--app-fw); color:var(--text); background:var(--bg); height:calc(100vh / var(--app-zoom)); zoom:var(--app-zoom); display:flex; flex-direction:column; }
   header { padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:14px; }
   header h1 { font-size:16px; margin:0; font-weight:600; }
   header .count { color:var(--muted); font-size:13px; }
@@ -275,12 +281,18 @@
       </select>
     </div>
     <h2 data-i18n="uiFontSize">界面字体大小</h2>
-    <p class="panelTip" data-i18n="uiFontSizeTip">整体放大或缩小软件界面（文字、按钮、列表一起缩放），不影响网页内容。</p>
+    <p class="panelTip" data-i18n="uiFontSizeTip">整体放大或缩小软件界面（文字、按钮、列表一起缩放），阅读模式的正文同步变化。</p>
     <div class="seg" id="fsSeg">
       <button data-v="s" data-i18n="fsSmall">小</button>
       <button data-v="m" data-i18n="fsNormal">标准</button>
       <button data-v="l" data-i18n="fsLarge">大</button>
       <button data-v="xl" data-i18n="fsXLarge">特大</button>
+    </div>
+    <h2 data-i18n="uiBold">粗体</h2>
+    <p class="panelTip" data-i18n="uiBoldTip">界面文字加粗显示，阅读模式下的正文也一起加粗。</p>
+    <div class="seg" id="boldSeg">
+      <button data-v="0" data-i18n="boldOff">关闭</button>
+      <button data-v="1" data-i18n="boldOn">开启</button>
     </div>
     <h2 data-i18n="accountSync">账号与同步</h2>
     <p class="panelTip" data-i18n="syncTip">多端同步靠"同步目标"：可以填自己的 WebDAV 网盘，也可以填另一台装了网页收藏的机器（比如家里的 NAS）。同一份库可以挂多个目标，互相当备份。</p>
@@ -430,8 +442,10 @@
       notArticle: '这个页面暂时抽不出正文（可能不是文章型页面）', readFail: '阅读模式失败：',
       settingsTitle: '设置', theme: '外观', lang: '语言', system: '跟随系统', light: '浅色', dark: '深色',
       uiFont: '界面字体', uiFontTip: '只影响软件界面（列表、按钮、状态栏等）；保存的网页内容保持原页面字体不变。',
-      uiFontSize: '界面字体大小', uiFontSizeTip: '整体放大或缩小软件界面（文字、按钮、列表一起缩放），不影响网页内容。',
+      uiFontSize: '界面字体大小', uiFontSizeTip: '整体放大或缩小软件界面（文字、按钮、列表一起缩放），阅读模式的正文同步变化。',
       fsSmall: '小', fsNormal: '标准', fsLarge: '大', fsXLarge: '特大',
+      uiBold: '粗体', uiBoldTip: '界面文字加粗显示，阅读模式下的正文也一起加粗。',
+      boldOff: '关闭', boldOn: '开启',
       fontSystem: '跟随系统', fontSong: '宋体', fontKai: '楷体', fontHei: '黑体', fontYuan: '圆体',
       fontYahei: '微软雅黑', fontPingfang: '苹方', fontMono: '等宽字体',
       from2: '来源', loading: '加载中…', saved: '已保存', exportFail: '导出失败',
@@ -511,8 +525,10 @@
       notArticle: 'No article content found (maybe not an article page)', readFail: 'Reader mode failed: ',
       settingsTitle: 'Settings', theme: 'Appearance', lang: 'Language', system: 'System', light: 'Light', dark: 'Dark',
       uiFont: 'Interface font', uiFontTip: 'Applies to the app UI only (list, buttons, status bar); saved pages keep their original fonts.',
-      uiFontSize: 'Interface text size', uiFontSizeTip: 'Scales the whole app UI (text, buttons, list together); saved pages are unaffected.',
+      uiFontSize: 'Interface text size', uiFontSizeTip: 'Scales the whole app UI (text, buttons, list together); the reader body follows too.',
       fsSmall: 'Small', fsNormal: 'Normal', fsLarge: 'Large', fsXLarge: 'Extra large',
+      uiBold: 'Bold', uiBoldTip: 'Renders all interface text in bold; the reader body is bolded as well.',
+      boldOff: 'Off', boldOn: 'On',
       fontSystem: 'Follow system', fontSong: 'Songti (serif)', fontKai: 'Kaiti', fontHei: 'Heiti (sans)', fontYuan: 'Rounded',
       fontYahei: 'Microsoft YaHei', fontPingfang: 'PingFang', fontMono: 'Monospace',
       from2: 'Source', loading: 'Loading…', saved: 'Saved', exportFail: 'Export failed',
@@ -635,6 +651,7 @@
     prefs.font = ev.target.value;
     applyFont();
     savePrefs();
+    refreshReader();
   });
 
   // ---------- 界面字体大小 ----------
@@ -651,8 +668,26 @@
     prefs.fontSize = btn.dataset.v;
     applyFontSize();
     savePrefs();
+    refreshReader();   // 阅读模式开着就别等用户再点一次
     // 缩放变了，面板可用高度跟着变（fitSettingsPanel 在下方声明，函数声明会提升）
     fitSettingsPanel();
+  });
+
+  // ---------- 界面粗体 ----------
+  function applyBold() {
+    const on = prefs.bold === true || prefs.bold === '1';
+    if (on) document.documentElement.dataset.bold = '1';
+    else delete document.documentElement.dataset.bold;
+    document.querySelectorAll('#boldSeg button').forEach(b =>
+      b.classList.toggle('on', b.dataset.v === (on ? '1' : '0')));
+  }
+  document.getElementById('boldSeg').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-v]');
+    if (!btn) return;
+    prefs.bold = btn.dataset.v === '1';
+    applyBold();
+    savePrefs();
+    refreshReader();
   });
 
   // ---------- 语言应用 ----------
@@ -669,6 +704,7 @@
     document.querySelectorAll('#langSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === prefs.lang));
     applyFont();
     applyFontSize();
+    applyBold();
     countEl.textContent = pages.length ? t('count', pages.length) : '';
     render(searchEl.value);
     renderStatus();
@@ -763,6 +799,7 @@
   function openPage(p) {
     currentId = p.id;
     readerOn = false;
+    readerArticle = null;
     document.getElementById('reader').classList.remove('on');
     document.querySelectorAll('.item').forEach(x => x.classList.remove('active'));
     const el = document.querySelector('.item[data-id="' + p.id + '"]');
@@ -823,6 +860,60 @@
   });
 
   // 阅读模式：用 Readability 从保存的页面抽取正文，去掉页头/侧栏/推荐流等杂项
+  // 正文的字号/字体/粗细沿用界面那三项设置（同一套偏好，不另设一套）
+  let readerArticle = null;
+
+  function readerTypeStyle() {
+    const px = ({ s: 15, m: 17, l: 19.5, xl: 22 })[prefs.fontSize] || 17;
+    const fam = getComputedStyle(document.body).fontFamily
+      || '-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif';
+    const bold = prefs.bold === true || prefs.bold === '1';
+    return { px, fam, weight: bold ? 600 : 400, titleWeight: bold ? 700 : 600 };
+  }
+
+  function renderReader() {
+    if (!readerArticle) return;
+    const { px, fam, weight, titleWeight } = readerTypeStyle();
+    const a = readerArticle;
+    const byline = a.byline ? '<p class="rv-byline">' + a.byline + '</p>' : '';
+    const rvStyle = `<style>
+      :root { color-scheme: light dark; }
+      body { margin:0; background:#ffffff; }
+      .rv-body { max-width:760px; margin:0 auto; padding:40px 24px; font-size:${px}px; line-height:1.85; color:#1f2933; background:#ffffff; font-family:${fam}; font-weight:${weight}; }
+      .rv-body img, .rv-body video { max-width:100%; height:auto; border-radius:6px; }
+      .rv-body h1 { font-size:1.45em; line-height:1.4; font-weight:${titleWeight}; }
+      .rv-body h2 { font-size:1.2em; }
+      .rv-body h3 { font-size:1.06em; }
+      .rv-body a { color:#185fa5; }
+      .rv-body pre { background:#f4f5f7; padding:12px; border-radius:8px; overflow:auto; }
+      .rv-byline { color:#6b7280; font-size:.78em; margin:0 0 22px; padding-bottom:14px; border-bottom:1px solid #e3e6ea; }
+      @media (prefers-color-scheme: dark) {
+        body { background:#131518; }
+        .rv-body { color:#dde1e6; background:#131518; }
+        .rv-body a { color:#6cb2f2; }
+        .rv-body pre { background:#23272f; }
+        .rv-byline { color:#9aa3af; border-bottom-color:#2e3340; }
+      }
+      html.rv-dark body, html.rv-dark .rv-body { background:#131518; }
+      html.rv-dark .rv-body { color:#dde1e6; }
+      html.rv-dark .rv-body a { color:#6cb2f2; }
+      html.rv-dark .rv-body pre { background:#23272f; }
+      html.rv-dark .rv-byline { color:#9aa3af; border-bottom-color:#2e3340; }
+    </style>`;
+    const rvDark = prefs.theme === 'dark' || (prefs.theme === 'system' && darkMQ.matches);
+    const fdoc = frame.contentDocument;
+    if (!fdoc) return;
+    fdoc.open();
+    fdoc.write('<!DOCTYPE html><html class="' + (rvDark ? 'rv-dark' : '') + '"><head><meta charset="utf-8">' + rvStyle + '</head><body>'
+      + '<div class="rv-body"><h1>' + (a.title || '') + '</h1>' + byline + a.content + '</div></body></html>');
+    fdoc.close();
+  }
+
+  // 改了字号/字体/粗细时，如果阅读模式正开着，直接重排一次
+  function refreshReader() {
+    if (readerOn) renderReader();
+  }
+
   document.getElementById('reader').addEventListener('click', () => {
     if (!currentId) return;
     if (readerOn) { // 切回原网页
@@ -837,36 +928,8 @@
       const parsed = new DOMParser().parseFromString(doc.documentElement.outerHTML, 'text/html');
       const article = new Readability(parsed).parse();
       if (!article || !article.content) { alert(t('notArticle')); return; }
-      const byline = article.byline ? '<p class="rv-byline">' + article.byline + '</p>' : '';
-      const rvStyle = `<style>
-        :root { color-scheme: light dark; }
-        body { margin:0; background:#ffffff; }
-        .rv-body { max-width:760px; margin:0 auto; padding:40px 24px; font-size:17px; line-height:1.85; color:#1f2933; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif; }
-        .rv-body img, .rv-body video { max-width:100%; height:auto; border-radius:6px; }
-        .rv-body h1 { font-size:24px; line-height:1.4; }
-        .rv-body h2 { font-size:20px; }
-        .rv-body a { color:#185fa5; }
-        .rv-body pre { background:#f4f5f7; padding:12px; border-radius:8px; overflow:auto; }
-        .rv-byline { color:#6b7280; font-size:13px; margin:0 0 22px; padding-bottom:14px; border-bottom:1px solid #e3e6ea; }
-        @media (prefers-color-scheme: dark) {
-          body { background:#131518; }
-          .rv-body { color:#dde1e6; background:#131518; }
-          .rv-body a { color:#6cb2f2; }
-          .rv-body pre { background:#23272f; }
-          .rv-byline { color:#9aa3af; border-bottom-color:#2e3340; }
-        }
-        html.rv-dark body, html.rv-dark .rv-body { background:#131518; }
-        html.rv-dark .rv-body { color:#dde1e6; }
-        html.rv-dark .rv-body a { color:#6cb2f2; }
-        html.rv-dark .rv-body pre { background:#23272f; }
-        html.rv-dark .rv-byline { color:#9aa3af; border-bottom-color:#2e3340; }
-      </style>`;
-      const rvDark = prefs.theme === 'dark' || (prefs.theme === 'system' && darkMQ.matches);
-      const fdoc = frame.contentDocument;
-      fdoc.open();
-      fdoc.write('<!DOCTYPE html><html class="' + (rvDark ? 'rv-dark' : '') + '"><head><meta charset="utf-8">' + rvStyle + '</head><body>'
-        + '<div class="rv-body"><h1>' + (article.title || '') + '</h1>' + byline + article.content + '</div></body></html>');
-      fdoc.close();
+      readerArticle = article;
+      renderReader();
       readerOn = true;
       document.getElementById('reader').classList.add('on');
     } catch (e) {
@@ -889,6 +952,7 @@
     if (currentId === id) {
       currentId = null;
       readerOn = false;
+      readerArticle = null;
       frame.src = 'about:blank';
       viewmeta.textContent = t('deleted');
       document.getElementById('del').style.display = 'none';
@@ -915,6 +979,7 @@
           const { sync: _s, ...rest } = d.prefs;
           prefs = Object.assign({}, prefs, rest);
           applyTheme(); applyI18n();
+          refreshReader();   // 阅读模式开着时，字体/字号/粗细也要跟着其他端改
           return;
         }
         if (d.type === 'synced' || d.type === 'imported') { refreshStatus(); return; }

@@ -444,6 +444,7 @@ const server = http.createServer((req, res) => {
       if (['system', 'zh', 'en'].includes(prefs.lang)) clean.lang = prefs.lang;
       if (['system', 'songti', 'kaiti', 'heiti', 'yuanti', 'yahei', 'pingfang', 'mono'].includes(prefs.font)) clean.font = prefs.font;
       if (['s', 'm', 'l', 'xl'].includes(prefs.fontSize)) clean.fontSize = prefs.fontSize;
+      if (typeof prefs.bold === 'boolean') clean.bold = prefs.bold;
       if (typeof prefs.autoUpdate === 'boolean') clean.autoUpdate = prefs.autoUpdate;
       // 同步目标：数组，每项 webdav（网盘）或 peer（另一台本程序 = NAS）
       if (prefs.sync && typeof prefs.sync === 'object') {

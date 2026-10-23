@@ -31,13 +31,13 @@ struct ReaderView: View {
             } else if failed {
                 VStack(spacing: 12) {
                     Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: 38))
+                        .pvFont(.largeTitle)
                         .foregroundColor(.secondary)
                     Text("这篇还没缓存，也连不上服务端")
-                        .font(.footnote)
+                        .pvFont(.footnote)
                         .foregroundColor(.secondary)
                     Button("重试") { Task { await load(force: true) } }
-                        .font(.footnote)
+                        .pvFont(.footnote)
                 }
             } else {
                 ProgressView().opacity(loading ? 1 : 0)
@@ -157,7 +157,9 @@ struct HTMLView: UIViewRepresentable {
         var htmlKey: Int?
         var loaded = false
         var appliedReader: Bool?
-        var style = ReaderStyle(reader: false, fontSize: 17, font: .system, isDark: false)
+        var style = ReaderStyle(reader: false, fontSize: 17,
+                                fontCSS: "-apple-system, \"PingFang SC\", sans-serif",
+                                bold: false, isDark: false)
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             loaded = true
