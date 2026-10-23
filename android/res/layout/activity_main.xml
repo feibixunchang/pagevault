@@ -45,6 +45,15 @@
             android:src="@drawable/ic_add" />
 
         <ImageButton
+            android:id="@+id/btnHot"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginLeft="4dp"
+            android:background="@drawable/btn_icon_bg"
+            android:contentDescription="@string/hot_title"
+            android:src="@drawable/ic_flame" />
+
+        <ImageButton
             android:id="@+id/btnSettings"
             android:layout_width="40dp"
             android:layout_height="40dp"

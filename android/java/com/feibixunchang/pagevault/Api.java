@@ -166,6 +166,25 @@ public final class Api {
         return r.body;
     }
 
+    // ---------- 热榜 ----------
+
+    /** 来源清单（原始 JSON，返回给界面自己解析） */
+    public static String hotSources() throws Exception {
+        Result r = request("GET", "/api/sources", null);
+        if (!r.ok()) throw new Exception("HTTP " + r.code);
+        return r.body;
+    }
+
+    /** 拉某个来源，返回原始 JSON */
+    public static String pullHotSource(String id, int limit, String cookie) throws Exception {
+        JSONObject o = new JSONObject();
+        o.put("limit", limit);
+        if (cookie != null && cookie.trim().length() > 0) o.put("cookie", cookie.trim());
+        Result r = request("POST", "/api/sources/" + id + "/pull", o.toString());
+        if (!r.ok()) throw new Exception("HTTP " + r.code);
+        return r.body;
+    }
+
     public static String cacheDir(Context c) {
         return c.getFilesDir().getAbsolutePath();
     }

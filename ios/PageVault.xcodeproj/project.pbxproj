@@ -3,27 +3,28 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 54;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		00F0D67943E733BABCA8EB3B /* ReaderStyleControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0497F167B18C92DC40370A54 /* ReaderStyleControls.swift */; };
 		011948A75FF729F71ACAAC54 /* PageVaultApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11FF8EEB3672C515E0519CF /* PageVaultApp.swift */; };
 		171B6DD1B044379DD3232D3B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7695A961041FA6708EE4C540 /* Assets.xcassets */; };
+		1CE1404BCBE86BB0A103001B /* AddByURLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59EDDF56460600D716D464DF /* AddByURLView.swift */; };
 		1E14C486E733FCA1D9ABF470 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06B00866292B30FA763D913D /* SettingsView.swift */; };
 		1E94B2A2651A2AB5FF7A4CD4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 541657F72ECA416DCCF6D088 /* RootView.swift */; };
 		226E0500494923F305FD35B6 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67AB346C01716E98EEDBBAF7 /* Models.swift */; };
+		2588DD7E4EC3A934129B0E36 /* AppType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE12F7B25EB09938EA1588E /* AppType.swift */; };
 		3D5E893352B5D3F477C43BAB /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29B222E4A6B9A27484CD88F7 /* ReaderView.swift */; };
+		4AC66341798843DE18FF26A3 /* FontCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F6C018D94E4F6287C98049 /* FontCatalog.swift */; };
 		4FA67AD3DCDF8FAC0F3EC29C /* ReaderStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1731058CBF228A11B07E7437 /* ReaderStyle.swift */; };
 		5B2B9A555F9874E7F5ADF87A /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 933328C4F1AD43ADB448136F /* Store.swift */; };
 		633528F48DD3081C15B6BACE /* ReaderScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070FC6DC190141B1ED6D98D7 /* ReaderScript.swift */; };
-		702E747B7BD2787D104A3F4D /* AppType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CCCDBF0EAD664FC23C5B56D /* AppType.swift */; };
-		2055DC9B8AE495C1F0AE5247 /* AddByURLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D93980CDBD52C702404C263 /* AddByURLView.swift */; };
-		B7C1ECB1C9706D440EC8A98F /* NavBarFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF91A8C3A9A4BA9EFAB97BD /* NavBarFont.swift */; };
-		8E22A421B03BA422E72FD63F /* FontCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F161EC3B658B00FB282AE89D /* FontCatalog.swift */; };
 		6518BC372E89408B3BAC7B43 /* NetworkInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43D1E5A1EA42DB2BC4EBB22A /* NetworkInfo.swift */; };
+		958E90A6666A08AEFCC8C5CA /* HotListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E938DCD4037AC9C35ECD4B7 /* HotListView.swift */; };
 		B779DEE0FD2875A35AABB7AC /* Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01BD8E4E6BB2E067D5DD1331 /* Cache.swift */; };
 		CFB48AE7D1642D99BD408439 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E078898BA61D7880A43C6EFE /* APIClient.swift */; };
+		D898A42B7AEBBBD1E1801166 /* NavBarFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D717ACAD53DC072C0C1F421 /* NavBarFont.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,16 +32,17 @@
 		0497F167B18C92DC40370A54 /* ReaderStyleControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderStyleControls.swift; sourceTree = "<group>"; };
 		06B00866292B30FA763D913D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		070FC6DC190141B1ED6D98D7 /* ReaderScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderScript.swift; sourceTree = "<group>"; };
-		2CCCDBF0EAD664FC23C5B56D /* AppType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppType.swift; sourceTree = "<group>"; };
-		4D93980CDBD52C702404C263 /* AddByURLView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddByURLView.swift; sourceTree = "<group>"; };
-		5DF91A8C3A9A4BA9EFAB97BD /* NavBarFont.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavBarFont.swift; sourceTree = "<group>"; };
-		F161EC3B658B00FB282AE89D /* FontCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontCatalog.swift; sourceTree = "<group>"; };
+		0E938DCD4037AC9C35ECD4B7 /* HotListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotListView.swift; sourceTree = "<group>"; };
 		1731058CBF228A11B07E7437 /* ReaderStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderStyle.swift; sourceTree = "<group>"; };
+		1CE12F7B25EB09938EA1588E /* AppType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppType.swift; sourceTree = "<group>"; };
 		29B222E4A6B9A27484CD88F7 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
+		3D717ACAD53DC072C0C1F421 /* NavBarFont.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavBarFont.swift; sourceTree = "<group>"; };
 		43D1E5A1EA42DB2BC4EBB22A /* NetworkInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkInfo.swift; sourceTree = "<group>"; };
 		541657F72ECA416DCCF6D088 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		59EDDF56460600D716D464DF /* AddByURLView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddByURLView.swift; sourceTree = "<group>"; };
 		67AB346C01716E98EEDBBAF7 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		7695A961041FA6708EE4C540 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		87F6C018D94E4F6287C98049 /* FontCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontCatalog.swift; sourceTree = "<group>"; };
 		933328C4F1AD43ADB448136F /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		B11FF8EEB3672C515E0519CF /* PageVaultApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageVaultApp.swift; sourceTree = "<group>"; };
 		B91BA3017214850DFCDC6F2A /* PageVault.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PageVault.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -52,18 +54,19 @@
 		760EA29D5748598353C73FC3 /* PageVault */ = {
 			isa = PBXGroup;
 			children = (
+				59EDDF56460600D716D464DF /* AddByURLView.swift */,
 				E078898BA61D7880A43C6EFE /* APIClient.swift */,
+				1CE12F7B25EB09938EA1588E /* AppType.swift */,
 				7695A961041FA6708EE4C540 /* Assets.xcassets */,
 				01BD8E4E6BB2E067D5DD1331 /* Cache.swift */,
+				87F6C018D94E4F6287C98049 /* FontCatalog.swift */,
+				0E938DCD4037AC9C35ECD4B7 /* HotListView.swift */,
 				E8BE4F314C082F2F76E913C3 /* Info.plist */,
 				67AB346C01716E98EEDBBAF7 /* Models.swift */,
+				3D717ACAD53DC072C0C1F421 /* NavBarFont.swift */,
 				43D1E5A1EA42DB2BC4EBB22A /* NetworkInfo.swift */,
 				B11FF8EEB3672C515E0519CF /* PageVaultApp.swift */,
 				070FC6DC190141B1ED6D98D7 /* ReaderScript.swift */,
-				2CCCDBF0EAD664FC23C5B56D /* AppType.swift */,
-				4D93980CDBD52C702404C263 /* AddByURLView.swift */,
-				5DF91A8C3A9A4BA9EFAB97BD /* NavBarFont.swift */,
-				F161EC3B658B00FB282AE89D /* FontCatalog.swift */,
 				1731058CBF228A11B07E7437 /* ReaderStyle.swift */,
 				0497F167B18C92DC40370A54 /* ReaderStyleControls.swift */,
 				29B222E4A6B9A27484CD88F7 /* ReaderView.swift */,
@@ -105,8 +108,6 @@
 			dependencies = (
 			);
 			name = PageVault;
-			packageProductDependencies = (
-			);
 			productName = PageVault;
 			productReference = B91BA3017214850DFCDC6F2A /* PageVault.app */;
 			productType = "com.apple.product-type.application";
@@ -127,6 +128,7 @@
 				};
 			};
 			buildConfigurationList = 3C0118AE8474DBD0ACFF96F5 /* Build configuration list for PBXProject "PageVault" */;
+			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -134,9 +136,6 @@
 				en,
 			);
 			mainGroup = A4579592DA91942692DD40C3;
-			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
-			productRefGroup = D1938C10FBCC150F70336B23 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -162,15 +161,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				CFB48AE7D1642D99BD408439 /* APIClient.swift in Sources */,
+				1CE1404BCBE86BB0A103001B /* AddByURLView.swift in Sources */,
+				2588DD7E4EC3A934129B0E36 /* AppType.swift in Sources */,
 				B779DEE0FD2875A35AABB7AC /* Cache.swift in Sources */,
+				4AC66341798843DE18FF26A3 /* FontCatalog.swift in Sources */,
+				958E90A6666A08AEFCC8C5CA /* HotListView.swift in Sources */,
 				226E0500494923F305FD35B6 /* Models.swift in Sources */,
+				D898A42B7AEBBBD1E1801166 /* NavBarFont.swift in Sources */,
 				6518BC372E89408B3BAC7B43 /* NetworkInfo.swift in Sources */,
 				011948A75FF729F71ACAAC54 /* PageVaultApp.swift in Sources */,
 				633528F48DD3081C15B6BACE /* ReaderScript.swift in Sources */,
-				702E747B7BD2787D104A3F4D /* AppType.swift in Sources */,
-				2055DC9B8AE495C1F0AE5247 /* AddByURLView.swift in Sources */,
-				B7C1ECB1C9706D440EC8A98F /* NavBarFont.swift in Sources */,
-				8E22A421B03BA422E72FD63F /* FontCatalog.swift in Sources */,
 				4FA67AD3DCDF8FAC0F3EC29C /* ReaderStyle.swift in Sources */,
 				00F0D67943E733BABCA8EB3B /* ReaderStyleControls.swift in Sources */,
 				3D5E893352B5D3F477C43BAB /* ReaderView.swift in Sources */,
@@ -217,7 +217,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = "10501";
+				CURRENT_PROJECT_VERSION = 10501;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -231,7 +231,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = "1.5.1";
+				MARKETING_VERSION = 1.5.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -320,7 +320,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = "10501";
+				CURRENT_PROJECT_VERSION = 10501;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -340,7 +340,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = "1.5.1";
+				MARKETING_VERSION = 1.5.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

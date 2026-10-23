@@ -8,6 +8,7 @@ struct RootView: View {
     @State private var onlyStarred = false
     @State private var showSettings = false
     @State private var showAdd = false
+    @State private var showHot = false
     @State private var addPrefillURL = ""
     @State private var addAutoSave = false
 
@@ -48,6 +49,14 @@ struct RootView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
+                        showHot = true
+                    } label: {
+                        Image(systemName: "flame")
+                    }
+                    .accessibilityLabel("热榜")
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
                         showSettings = true
                     } label: {
                         Image(systemName: "gearshape")
@@ -60,6 +69,10 @@ struct RootView: View {
             }
             .sheet(isPresented: $showAdd) {
                 AddByURLView(prefillURL: addPrefillURL, autoSave: addAutoSave)
+                    .environmentObject(store)
+            }
+            .sheet(isPresented: $showHot) {
+                HotListView()
                     .environmentObject(store)
             }
             .task {

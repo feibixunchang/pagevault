@@ -237,6 +237,40 @@
   .hint { font-size:11px; color:var(--muted); line-height:1.6; margin:6px 0 0; word-break:break-all; }
   .hint code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--accent-bg);
     padding:1px 4px; border-radius:3px; }
+
+  /* ---------- 热榜面板 ---------- */
+  #hotPanel { display:none; position:fixed; top:52px; right:16px; width:340px; max-height:calc(100vh / var(--app-zoom) - 72px);
+    overflow-y:auto; overscroll-behavior:contain; background:var(--panel); border:1px solid var(--border);
+    border-radius:12px; box-shadow:0 8px 28px rgba(0,0,0,.16); z-index:50; padding:14px 16px; }
+  #hotPanel.open { display:block; }
+  #hotPanel h2 { font-size:12px; color:var(--muted); margin:0 0 8px; font-weight:600; }
+  #hotPanel h2:not(:first-child) { margin-top:16px; }
+  .hotRow { display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid var(--border); }
+  .hotRow:last-of-type { border-bottom:none; }
+  .hotRow .emo { font-size:16px; width:20px; text-align:center; flex:none; }
+  .hotRow .nm { flex:1; min-width:0; }
+  .hotRow .nm b { display:block; font-size:13px; font-weight:600; color:var(--text); }
+  .hotRow .nm span { display:block; font-size:11px; color:var(--muted); line-height:1.5;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hotRow .nm span.err { color:#d29922; }
+  .hotRow select { font-size:11px; padding:3px 4px; border:1px solid var(--border); border-radius:6px;
+    background:var(--btn-bg); color:var(--btn-text); }
+  .hotRow button.pull { border:1px solid var(--accent); color:var(--accent); background:var(--accent-bg);
+    border-radius:7px; padding:4px 9px; font-size:12px; cursor:pointer; white-space:nowrap; }
+  .hotRow button.pull:disabled { opacity:.5; cursor:default; }
+  .hotTop { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
+  .hotTop button { flex:1; border:1px solid var(--accent); color:var(--accent); background:var(--accent-bg);
+    border-radius:8px; padding:7px 10px; font-size:13px; cursor:pointer; }
+  .hotTop button:disabled { opacity:.5; cursor:default; }
+  .hotCookie { margin-top:8px; padding:9px; border:1px solid var(--border); border-radius:9px; background:var(--bg); }
+  .hotCookie textarea { width:100%; height:62px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:11px; border:1px solid var(--border); border-radius:6px; padding:6px; background:var(--panel); color:var(--text);
+    resize:vertical; }
+  .hotCookie .row { display:flex; gap:6px; margin-top:6px; align-items:center; }
+  .hotCookie button { border:1px solid var(--accent); color:var(--accent); background:var(--accent-bg);
+    border-radius:7px; padding:5px 11px; font-size:12px; cursor:pointer; }
+  .hotLog { font-size:11px; color:var(--muted); line-height:1.6; margin-top:8px; white-space:pre-wrap; }
+  .hotLog b { color:var(--text); }
 </style>
 </head>
 <body>
@@ -249,12 +283,28 @@
     <button id="updateEntry" class="upd-entry" style="display:none" title=""></button>
     <button id="fullsearch" title="同时搜索页面正文内容">全文</button>
     <button id="refresh" title="重新加载列表">↻ 刷新</button>
+    <button id="hotBtn" title="从热榜抓文章">🔥 热榜</button>
     <button id="settingsBtn" title="设置">⚙</button>
   </header>
   <div id="extBanner">
     <span class="grow" data-i18n="bannerText">还没有安装浏览器扩展——安装后就能在任意网页一键整页保存。</span>
     <button id="bannerInstall" data-i18n="viewSteps">查看安装步骤</button>
     <button id="bannerClose" class="ghost" data-i18n="bannerClose">知道了</button>
+  </div>
+  <div id="hotPanel">
+    <div class="hotTop">
+      <button id="hotPullAll">全部拉取</button>
+      <select id="hotInterval" title="自动拉取间隔">
+        <option value="0">不自动</option>
+        <option value="3600">每小时</option>
+        <option value="10800">每 3 小时</option>
+        <option value="21600">每 6 小时</option>
+        <option value="43200">每 12 小时</option>
+        <option value="86400">每天</option>
+      </select>
+    </div>
+    <div id="hotList"></div>
+    <div class="hotLog" id="hotLog"></div>
   </div>
   <div id="settingsPanel">
     <h2 data-i18n="theme">外观</h2>
@@ -1744,6 +1794,197 @@
     prefs.lang = v;
     savePrefs();
     applyI18n();
+  });
+
+  // ---------- 热榜 ----------
+  const hotPanel = document.getElementById('hotPanel');
+  const hotList = document.getElementById('hotList');
+  const hotLog = document.getElementById('hotLog');
+  let hotSources = [];
+
+  function fitHotPanel() {
+    const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-zoom')) || 1;
+    hotPanel.style.maxHeight = Math.max(260, Math.round(window.innerHeight / z) - 72) + 'px';
+  }
+  window.addEventListener('resize', () => { if (hotPanel.classList.contains('open')) fitHotPanel(); });
+  document.getElementById('hotBtn').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    settingsPanel.classList.remove('open');
+    hotPanel.classList.toggle('open');
+    if (hotPanel.classList.contains('open')) { fitHotPanel(); loadSources(); }
+  });
+  document.addEventListener('click', (ev) => {
+    if (!hotPanel.contains(ev.target) && ev.target.id !== 'hotBtn') hotPanel.classList.remove('open');
+  });
+
+  // keepLog：拉取完之后要保留「结果」那行，别被这里的占位文字冲掉
+  async function loadSources(keepLog) {
+    if (!keepLog) hotLog.textContent = '正在读取来源…';
+    let list = [];
+    try {
+      const r = await fetch('/api/sources');
+      list = await r.json();
+    } catch (e) {
+      hotLog.textContent = '读不到来源清单：' + (e && e.message ? e.message : e);
+      return;
+    }
+    hotSources = Array.isArray(list) ? list : [];
+    renderSources();
+    if (!keepLog) hotLog.textContent = '';
+  }
+
+  function renderSources() {
+    hotList.innerHTML = '';
+    for (const s of hotSources) {
+      const row = document.createElement('div');
+      row.className = 'hotRow';
+
+      const emo = document.createElement('span');
+      emo.className = 'emo';
+      emo.textContent = s.emoji || '📰';
+      row.appendChild(emo);
+
+      const nm = document.createElement('div');
+      nm.className = 'nm';
+      const b = document.createElement('b');
+      b.textContent = s.name;
+      nm.appendChild(b);
+      const sub = document.createElement('span');
+      let subText = s.desc || '';
+      if (s.needsCookie) subText += (s.hasCookie ? ' · 已配 Cookie' : ' · 需要 Cookie');
+      if (s.lastResult) {
+        subText += ' · 上次 ' + new Date(s.lastResult.at).toLocaleString() +
+          ' 存' + (s.lastResult.saved || 0) + ' 篇';
+      }
+      sub.textContent = subText;
+      if (s.lastResult && s.lastResult.errors) sub.classList.add('err');
+      nm.appendChild(sub);
+      row.appendChild(nm);
+
+      const sel = document.createElement('select');
+      for (const n of [3, 5, 8, 10, 15]) {
+        const o = document.createElement('option');
+        o.value = String(n);
+        o.textContent = n + ' 篇';
+        if (n === (s.limit || 5)) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.title = '每次拉多少篇';
+      sel.addEventListener('change', () => updateSource(s.id, { limit: Number(sel.value) }));
+      row.appendChild(sel);
+
+      const btn = document.createElement('button');
+      btn.className = 'pull';
+      btn.textContent = s.running ? '拉取中' : '拉取';
+      btn.disabled = !!s.running;
+      btn.addEventListener('click', () => pullSource(s.id, btn));
+      row.appendChild(btn);
+
+      hotList.appendChild(row);
+
+      // 需要 Cookie 的来源（目前是知乎），展开一个输入框
+      if (s.needsCookie) {
+        const box = document.createElement('div');
+        box.className = 'hotCookie';
+        const tip = document.createElement('div');
+        tip.className = 'hint';
+        tip.textContent = s.cookieHint || '这个来源需要登录 Cookie';
+        box.appendChild(tip);
+        const ta = document.createElement('textarea');
+        ta.placeholder = 'cookie: z_c0=…';
+        const hp = prefs.hotlist && prefs.hotlist.sources && prefs.hotlist.sources[s.id];
+        ta.value = (hp && hp.cookie) || '';
+        box.appendChild(ta);
+        const row2 = document.createElement('div');
+        row2.className = 'row';
+        const save = document.createElement('button');
+        save.textContent = '保存 Cookie';
+        save.addEventListener('click', () => {
+          updateSource(s.id, { cookie: ta.value.trim() });
+          hotLog.textContent = '已保存 ' + s.name + ' 的 Cookie';
+        });
+        const clr = document.createElement('button');
+        clr.textContent = '清除';
+        clr.addEventListener('click', () => { ta.value = ''; updateSource(s.id, { cookie: '' }); });
+        row2.appendChild(save);
+        row2.appendChild(clr);
+        box.appendChild(row2);
+        hotList.appendChild(box);
+      }
+    }
+  }
+
+  async function updateSource(id, patch) {
+    try {
+      await fetch('/api/sources/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      });
+      await loadSources();
+    } catch (e) {
+      hotLog.textContent = '保存失败：' + (e && e.message ? e.message : e);
+    }
+  }
+
+  async function pullSource(id, btn) {
+    const s = hotSources.find(x => x.id === id);
+    if (btn) { btn.disabled = true; btn.textContent = '拉取中…'; }
+    hotLog.textContent = '正在拉取' + (s ? s.name : '') + '…';
+    try {
+      const r = await fetch('/api/sources/' + id + '/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: s ? s.limit : 5 })
+      });
+      const d = await r.json();
+      if (!d.ok && d.errors && d.errors.length) {
+        hotLog.innerHTML = '<b>拉取失败</b>\n' + d.errors.map(e => (e.error || '') + (e.title ? '（' + e.title + '）' : '')).join('\n');
+      } else {
+        const parts = ['存入 <b>' + (d.saved || []).length + '</b> 篇'];
+        if ((d.skipped || []).length) parts.push('跳过 ' + d.skipped.length + ' 篇（多半是已经收藏过）');
+        if ((d.errors || []).length) parts.push('失败 ' + d.errors.length + ' 篇');
+        parts.push('用时 ' + Math.round((d.durationMs || 0) / 1000) + ' 秒');
+        hotLog.innerHTML = parts.join(' · ');
+        if ((d.saved || []).length) { load(); }
+      }
+    } catch (e) {
+      hotLog.textContent = '拉取失败：' + (e && e.message ? e.message : e);
+    }
+    await loadSources(true);
+  }
+
+  document.getElementById('hotPullAll').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    hotLog.textContent = '正在依次拉取所有启用的来源…';
+    try {
+      const r = await fetch('/api/sources/pull-all', { method: 'POST' });
+      const d = await r.json();
+      const res = d.results || [];
+      const saved = res.reduce((n, x) => n + ((x.saved || []).length), 0);
+      const errs = res.reduce((n, x) => n + ((x.errors || []).length), 0);
+      hotLog.innerHTML = '全部拉取完成：存入 <b>' + saved + '</b> 篇' + (errs ? '，失败 ' + errs + ' 篇' : '');
+      if (saved) load();
+    } catch (e) {
+      hotLog.textContent = '拉取失败：' + (e && e.message ? e.message : e);
+    }
+    btn.disabled = false;
+    await loadSources(true);
+  });
+
+  document.getElementById('hotInterval').addEventListener('change', (ev) => {
+    const sec = Number(ev.target.value) || 0;
+    // 间隔对所有来源统一设置（每个来源也可以单独调，这里给个全局默认值）
+    Promise.all(hotSources.filter(s => s.enabled !== false).map(s =>
+      fetch('/api/sources/' + s.id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intervalSec: sec })
+      })
+    )).then(() => {
+      hotLog.textContent = sec ? '已设置：每 ' + (sec / 3600) + ' 小时自动拉取' : '已关闭自动拉取';
+    }).catch(e => { hotLog.textContent = '设置失败：' + e.message; });
   });
 
   // ---------- 启动 ----------

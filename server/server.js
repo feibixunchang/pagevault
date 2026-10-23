@@ -34,6 +34,9 @@ const EXT_STATE_FILE = path.join(DATA_ROOT, 'extension-state.json');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const MAX_BODY = 80 * 1024 * 1024; // 80MB cap per page
 
+const { HotListEngine } = require('./hotlist.js');
+const { SOURCES: HOT_SOURCES } = require('./sources.js');
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(INDEX_FILE)) fs.writeFileSync(INDEX_FILE, '[]');
 
@@ -221,6 +224,49 @@ const sync = new SyncEngine({
   log,
   onSynced: () => broadcastMeta({ type: 'synced', at: Date.now() })
 });
+
+// ---------- 热榜引擎（定时把知乎/V2EX/少数派…的热榜文章抓下来存库） ----------
+const hotlist = new HotListEngine({
+  listUrls: () => new Set(loadIndex().map(m => m.url).filter(Boolean)),
+  pageTitle: (html) => pageTitle(html),
+  persistPage: (payload, opts) => persistPage(payload, opts),
+  log,
+  onPulled: (r) => {
+    log('hotlist pulled', r.sourceId, 'saved=' + r.saved.length, 'errors=' + r.errors.length);
+    broadcastMeta({ type: 'hotlist', sourceId: r.sourceId, saved: r.saved.length, at: Date.now() });
+  }
+});
+
+/** 热榜配置存在 prefs.json 的 hotlist.sources 里 */
+function hotlistConfig() {
+  const p = loadPrefsRaw();
+  const h = p.hotlist || {};
+  const raw = h.sources && typeof h.sources === 'object' ? h.sources : {};
+  const sources = {};
+  for (const s of HOT_SOURCES) {
+    const c = raw[s.id] || {};
+    sources[s.id] = {
+      enabled: c.enabled !== false,
+      limit: Math.max(1, Math.min(20, Number(c.limit) || 5)),
+      intervalSec: Math.max(0, Math.min(86400 * 7, Number(c.intervalSec) || 0)),
+      cookie: String(c.cookie || '')
+    };
+  }
+  return { sources };
+}
+
+function saveHotlistConfig(next) {
+  const p = loadPrefsRaw();
+  p.hotlist = { sources: next.sources || {} };
+  try { fs.writeFileSync(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ }
+  hotlist.setConfig(next);
+  return next;
+}
+
+function restartHotlistTimer() {
+  hotlist.setConfig(hotlistConfig());
+}
+
 function syncConfig() {
   const p = loadPrefsRaw();
   const s = p.sync || {};
@@ -569,6 +615,68 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // ---------- 热榜 ----------
+  // 来源清单（含每个来源的开关、拉多少篇、多久拉一次、有没有配 Cookie）
+  if (req.method === 'GET' && p === '/api/sources') {
+    send(res, 200, JSON.stringify(hotlist.status()), { 'Content-Type': 'application/json; charset=utf-8' });
+    return;
+  }
+  // 拉某个来源（或全部启用的来源）
+  const hotPull = p.match(/^\/api\/sources\/([\w-]+)\/pull$/);
+  if (req.method === 'POST' && hotPull) {
+    readBody(req, 1024 * 256, (err, buf) => {
+      if (err) { send(res, 413, JSON.stringify({ error: '请求体太大' }), { 'Content-Type': 'application/json' }); return; }
+      let payload = {};
+      try { payload = JSON.parse(buf.toString('utf8') || '{}'); } catch { payload = {}; }
+      hotlist.pull(hotPull[1], {
+        limit: Number(payload.limit) || 0,
+        cookie: payload.cookie !== undefined ? String(payload.cookie) : undefined
+      }).then(r => {
+        send(res, 200, JSON.stringify(r), { 'Content-Type': 'application/json; charset=utf-8' });
+      }).catch(e => {
+        send(res, 502, JSON.stringify({ error: (e && e.message) || String(e) }), { 'Content-Type': 'application/json; charset=utf-8' });
+      });
+    });
+    return;
+  }
+  if (req.method === 'POST' && p === '/api/sources/pull-all') {
+    const cfg = hotlistConfig();
+    const ids = Object.keys(cfg.sources).filter(id => cfg.sources[id].enabled);
+    const results = [];
+    const runOne = (i) => {
+      if (i >= ids.length) {
+        send(res, 200, JSON.stringify({ ok: true, results }), { 'Content-Type': 'application/json; charset=utf-8' });
+        return;
+      }
+      hotlist.pull(ids[i], { limit: cfg.sources[ids[i]].limit, cookie: cfg.sources[ids[i]].cookie })
+        .then(r => { results.push(r); runOne(i + 1); })
+        .catch(e => { results.push({ sourceId: ids[i], ok: false, errors: [{ error: (e && e.message) || String(e) }] }); runOne(i + 1); });
+    };
+    runOne(0);
+    return;
+  }
+  // 改某个来源的配置（开关/条数/间隔/Cookie）
+  const hotCfg = p.match(/^\/api\/sources\/([\w-]+)$/);
+  if (req.method === 'PUT' && hotCfg) {
+    readBody(req, 1024 * 256, (err, buf) => {
+      if (err) { send(res, 413, JSON.stringify({ error: '请求体太大' }), { 'Content-Type': 'application/json' }); return; }
+      let payload = {};
+      try { payload = JSON.parse(buf.toString('utf8') || '{}'); } catch { payload = {}; }
+      const cur = hotlistConfig();
+      const c = cur.sources[hotCfg[1]] || {};
+      const next = {
+        enabled: typeof payload.enabled === 'boolean' ? payload.enabled : c.enabled,
+        limit: Math.max(1, Math.min(20, Number(payload.limit) || c.limit || 5)),
+        intervalSec: Math.max(0, Math.min(86400 * 7, Number(payload.intervalSec) || 0)),
+        cookie: payload.cookie !== undefined ? String(payload.cookie) : (c.cookie || '')
+      };
+      cur.sources[hotCfg[1]] = next;
+      saveHotlistConfig(cur);
+      send(res, 200, JSON.stringify({ ok: true, config: cur.sources[hotCfg[1]] }), { 'Content-Type': 'application/json; charset=utf-8' });
+    });
+    return;
+  }
+
   // 偏好设置（主题/语言，阅读器与桌面端主进程共用）
   if (req.method === 'GET' && p === '/api/prefs') {
     let prefs = {};
@@ -629,6 +737,26 @@ const server = http.createServer((req, res) => {
       }
       // syncServer 由服务端自己维护（令牌不可从前端改写），原样保留
       const prev = loadPrefsRaw();      if (prev.syncServer) clean.syncServer = prev.syncServer;
+      // 热榜来源配置也放在 prefs 里（多端共享），Cookie 只留在服务端
+      if (prefs.hotlist && typeof prefs.hotlist === 'object') {
+        const hs = (prefs.hotlist.sources && typeof prefs.hotlist.sources === 'object') ? prefs.hotlist.sources : {};
+        const cur = hotlistConfig();
+        const merged = {};
+        for (const s of HOT_SOURCES) {
+          const c = hs[s.id] || {};
+          merged[s.id] = {
+            enabled: typeof c.enabled === 'boolean' ? c.enabled : cur.sources[s.id].enabled,
+            limit: Math.max(1, Math.min(20, Number(c.limit) || cur.sources[s.id].limit)),
+            intervalSec: Math.max(0, Math.min(86400 * 7, Number(c.intervalSec) || 0)),
+            cookie: c.cookie !== undefined ? String(c.cookie).slice(0, 4000) : cur.sources[s.id].cookie
+          };
+        }
+        clean.hotlist = { sources: merged };
+        saveHotlistConfig({ sources: merged });
+      } else {
+        const old = loadPrefsRaw();
+        if (old.hotlist) clean.hotlist = old.hotlist;
+      }
       try { fs.writeFileSync(PREFS_FILE, JSON.stringify(clean, null, 2)); } catch { /* 只读环境忽略 */ }
       syncServerCache = null;
       send(res, 200, JSON.stringify(Object.assign({}, clean, { syncServer: ensureSyncServer() })), { 'Content-Type': 'application/json; charset=utf-8' });
@@ -1165,4 +1293,5 @@ server.listen(PORT, () => {
   console.log(`网页收藏 sync server running at http://localhost:${PORT}`);
   ensureSyncServer();   // 确保本机作为同步源的令牌已生成
   restartSyncTimer();   // 按保存的同步配置恢复轮询
+  restartHotlistTimer(); // 按保存的热榜配置恢复定时拉取
 });

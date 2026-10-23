@@ -143,4 +143,50 @@ final class APIClient {
         struct Reply: Decodable { var id: String? }
         return (try? JSONDecoder().decode(Reply.self, from: data))?.id
     }
+
+    // MARK: - 热榜
+
+    func hotSources() async throws -> Data {
+        try await fetch("/api/sources", method: "GET")
+    }
+
+    func pullHotSource(id: String, limit: Int, cookie: String?) async throws -> HotPullResult {
+        guard let url = URL(string: "/api/sources/\(id)/pull", relativeTo: base) else {
+            throw APIError(message: "服务端地址无效")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 180           // 抓榜单 + 逐篇抓原文，可能要一分多钟
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["limit": max(1, min(20, limit))]
+        if let c = cookie, !c.isEmpty { body["cookie"] = c }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let data = try await send(req)
+        return (try? JSONDecoder().decode(HotPullResult.self, from: data))
+            ?? HotPullResult(ok: false, saved: [], skipped: [], errors: [], durationMs: 0)
+    }
+
+    func pullAllHotSources() async throws -> HotPullAllResult {
+        guard let url = URL(string: "/api/sources/pull-all", relativeTo: base) else {
+            throw APIError(message: "服务端地址无效")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 600
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let data = try await send(req)
+        return (try? JSONDecoder().decode(HotPullAllResult.self, from: data))
+            ?? HotPullAllResult(ok: false, results: [], error: "返回数据看不懂")
+    }
+
+    func saveHotSourceConfig(id: String, cookie: String) async throws -> Data {
+        guard let url = URL(string: "/api/sources/\(id)", relativeTo: base) else {
+            throw APIError(message: "服务端地址无效")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["cookie": cookie])
+        return try await send(req)
+    }
 }

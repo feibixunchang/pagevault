@@ -253,6 +253,52 @@ final class Store: ObservableObject {
         }
     }
 
+    // MARK: - 热榜
+
+    /// 热榜来源清单（服务端返回，含开关/条数/Cookie 是否已配）
+    func hotSources() async throws -> [HotSource] {
+        guard let api = api else { throw APIError(message: "服务端地址填得不对，去设置里改一下") }
+        let data = try await api.hotSources()
+        return (try? JSONDecoder().decode([HotSource].self, from: data)) ?? []
+    }
+
+    /// 拉某个来源
+    func pullHotSource(_ id: String, limit: Int, cookie: String?) async -> HotPullResult {
+        guard let api = api else {
+            return HotPullResult(ok: false, saved: [], skipped: [], errors: [], durationMs: 0)
+        }
+        do {
+            return try await api.pullHotSource(id: id, limit: limit, cookie: cookie)
+        } catch {
+            return HotPullResult(ok: false, saved: [], skipped: [],
+                                errors: [HotErrorItem(title: nil, error: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)],
+                                durationMs: 0)
+        }
+    }
+
+    /// 拉所有启用的来源
+    func pullAllHotSources() async -> HotPullAllResult {
+        guard let api = api else {
+            return HotPullAllResult(ok: false, results: [], error: "服务端地址填得不对")
+        }
+        do {
+            return try await api.pullAllHotSources()
+        } catch {
+            return HotPullAllResult(ok: false, results: [], error: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+        }
+    }
+
+    /// 改某个来源的配置（目前手机端只改 Cookie）
+    func saveHotSourceConfig(_ id: String, cookie: String) async -> Bool {
+        guard let api = api else { return false }
+        do {
+            _ = try await api.saveHotSourceConfig(id: id, cookie: cookie)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - 星标
 
     func toggleStar(_ page: PageMeta) async {

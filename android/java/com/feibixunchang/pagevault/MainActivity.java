@@ -60,6 +60,8 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(this, AddUrlActivity.class)));
         findViewById(R.id.btnSettings).setOnClickListener(v ->
                 startActivity(new Intent(this, SettingsActivity.class)));
+        findViewById(R.id.btnHot).setOnClickListener(v ->
+                startActivity(new Intent(this, HotListActivity.class)));
         findViewById(R.id.btnRefresh).setOnClickListener(v -> load());
 
         tabAll.setOnClickListener(v -> { onlyStarred = false; render(); });
