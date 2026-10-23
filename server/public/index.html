@@ -1136,6 +1136,12 @@
       document.getElementById('settingsPanel').classList.add('open');
       checkUpdate();
     });
+    // 主进程的系统弹窗点了「立即更新」→ 直接进入测速下载流程
+    pv.on('updater:open-panel', (tag) => {
+      if (!tag) return;
+      showUpdateEntry(tag);
+      openUpdateModal(tag);
+    });
     updateEntry.addEventListener('click', () => { if (updateTag) openUpdateModal(updateTag); });
   }
 

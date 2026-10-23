@@ -65,8 +65,16 @@ struct RootView: View {
         let args = ProcessInfo.processInfo.arguments
         if args.contains("-pvOpenSettings") {
             showSettings = true
-        } else if args.contains("-pvOpenFirst"), path.isEmpty, let first = store.pages.first {
-            path.append(first)
+        } else if path.isEmpty, let first = store.pages.first {
+            // -pvOpenIndex N 打开第 N 条（默认 0）；用来挑"小页面"验证，避开几百 MB 的巨页
+            var index = 0
+            if let i = args.firstIndex(of: "-pvOpenIndex"), i + 1 < args.count, let n = Int(args[i + 1]) {
+                index = max(0, min(n, store.pages.count - 1))
+            }
+            if args.contains("-pvOpenFirst") || args.contains("-pvOpenIndex") {
+                path.append(store.pages[index])
+            }
+            _ = first
         }
         #endif
     }
