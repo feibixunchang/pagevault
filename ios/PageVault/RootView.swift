@@ -7,6 +7,7 @@ struct RootView: View {
     @State private var query = ""
     @State private var onlyStarred = false
     @State private var showSettings = false
+    @State private var showAdd = false
 
     private var filtered: [PageMeta] {
         var list = store.pages
@@ -35,6 +36,14 @@ struct RootView: View {
                 ReaderView(page: page)
             }
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showAdd = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("保存文章")
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showSettings = true
@@ -46,6 +55,9 @@ struct RootView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
+            }
+            .sheet(isPresented: $showAdd) {
+                AddByURLView().environmentObject(store)
             }
             .task {
                 if store.pages.isEmpty { await store.refresh() }
@@ -203,7 +215,7 @@ struct RootView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
                 } else if store.online {
-                    Text("在浏览器里装好扩展，看到想留的页面点一下就行")
+                    Text("电脑上装好扩展，看到想留的页面点一下就行；手机上点左上角 + 粘贴链接也能存。")
                         .pvFont(.footnote)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)

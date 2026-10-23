@@ -285,6 +285,31 @@ final class Store: ObservableObject {
         }
     }
 
+    // MARK: - 按链接收藏（手机端唯一可行的保存方式）
+
+    /// 返回 nil 表示保存成功，否则是给用户看的错误文案。
+    /// 微信里长按复制出来的常常是「标题 + 链接」甚至带一堆前后文字，这里把第一个
+    /// http(s) 链接抠出来；抠不到就补个 https:// 当域名用。
+    func addByURL(_ raw: String, title: String = "") async -> String? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return "先粘贴一个网址" }
+        guard let api = api else { return "服务端地址填得不对，去设置里改一下" }
+
+        let cleaned: String
+        if let r = text.range(of: #"https?://[^\s"'“”<>（）]+"#, options: .regularExpression) {
+            cleaned = String(text[r])
+        } else {
+            cleaned = text.contains("://") ? text : "https://" + text
+        }
+        do {
+            _ = try await api.saveFromURL(cleaned, title: title)
+            await refresh(showSpinner: false)
+            return nil
+        } catch {
+            return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
     // MARK: - 正文
 
     /// 缓存优先；没有就下载并落盘，方便下次离线读

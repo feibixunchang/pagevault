@@ -5,6 +5,7 @@
 // This same server becomes the Docker "end" later; the data format stays identical.
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -313,6 +314,119 @@ function readBody(req, capBytes, cb) {
   });
   req.on('end', () => cb(null, Buffer.concat(chunks)));
   req.on('error', e => cb(e));
+}
+
+// ---------- 服务端抓网页（手机端「粘贴链接收藏」用） ----------
+// 浏览器扩展是把渲染好的整页 DOM 抓下来上传，手机上做不到这一点（微信/Safari 都不给），
+// 所以这里让服务端替手机去抓：拿原始 HTML + 注入 <base>，读的时候图片仍走 /api/img 代理。
+const FETCH_MAX_BYTES = 12 * 1024 * 1024;
+const DESKTOP_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+function fetchHtml(targetUrl, hops) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try { u = new URL(targetUrl); } catch { return reject(new Error('网址格式不对')); }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return reject(new Error('只支持 http/https 网址'));
+    const mod = u.protocol === 'https:' ? https : http;
+    const req = mod.get(u, {
+      headers: {
+        'User-Agent': DESKTOP_UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        // 不要压缩：省得手动解 gzip/br，抓网页这点流量影响可忽略
+        'Accept-Encoding': 'identity'
+      },
+      timeout: 20000
+    }, (res) => {
+      const code = res.statusCode || 0;
+      if (code >= 300 && code < 400 && res.headers.location) {
+        res.resume();
+        if ((hops || 0) >= 6) return reject(new Error('重定向次数太多'));
+        const next = new URL(res.headers.location, u).toString();
+        return fetchHtml(next, (hops || 0) + 1).then(resolve, reject);
+      }
+      if (code >= 400) { res.resume(); return reject(new Error('对方网站返回 HTTP ' + code)); }
+      const chunks = []; let size = 0;
+      res.on('data', (c) => {
+        size += c.length;
+        if (size > FETCH_MAX_BYTES) {
+          req.destroy();
+          reject(new Error('页面太大（超过 12MB），这个链接可能不是普通网页'));
+          return;
+        }
+        chunks.push(c);
+      });
+      res.on('end', () => resolve({
+        buffer: Buffer.concat(chunks),
+        contentType: String(res.headers['content-type'] || ''),
+        finalUrl: u.toString()
+      }));
+    });
+    req.on('timeout', () => req.destroy(new Error('抓取超时（20 秒），对方网站太慢或连不上')));
+    req.on('error', (e) => reject(e));
+  });
+}
+
+// 国内不少站点还是 GBK，Node 默认按 UTF-8 解会变乱码
+function decodePage(buffer, contentType) {
+  let charset = (String(contentType).match(/charset=["']?([\w-]+)/i) || [])[1];
+  if (!charset) {
+    const head = buffer.slice(0, 4096).toString('latin1');
+    charset = (head.match(/<meta[^>]+charset=["']?([\w-]+)/i) || [])[1];
+  }
+  charset = String(charset || 'utf-8').toLowerCase();
+  if (charset === 'gb2312' || charset === 'gb-2312') charset = 'gbk';
+  try { return new TextDecoder(charset).decode(buffer); } catch { return buffer.toString('utf8'); }
+}
+
+// 把 Node 的底层网络错误翻成人话——手机端会把这段原样显示在提示里
+function friendlyFetchError(e) {
+  const code = (e && e.code) || '';
+  const msg = (e && e.message) || '';
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return '域名解析失败，检查网址有没有写错';
+  if (code === 'ECONNREFUSED') return '对方网站拒绝连接';
+  if (code === 'ETIMEDOUT' || /timeout/i.test(msg)) return '连接超时，对方网站太慢或连不上';
+  if (code === 'ECONNRESET' || /socket disconnected|TLS/i.test(msg)) return '连接被对方中断（可能限制了抓取，或需要代理）';
+  if (/certificate/i.test(msg)) return '对方网站的 HTTPS 证书有问题';
+  return msg || '抓取失败';
+}
+
+function pageTitle(html) {
+  const m = String(html).match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (!m) return '';
+  return m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
+// 落盘 + 建索引 + 广播 + 触发同步。浏览器扩展上传、手机端按链接抓取，两条路都走这里，
+// 保证存出来的数据格式完全一致（同步/WebDAV/离线缓存都依赖这一点）。
+function persistPage(payload, opts) {
+  opts = opts || {};
+  const html = payload.html;
+  const id = crypto.randomUUID();
+  const meta = {
+    id,
+    title: String(payload.title || 'Untitled').slice(0, 300),
+    url: String(payload.url || '').slice(0, 2000),
+    savedAt: new Date().toISOString(),
+    platform: String(payload.platform || 'unknown').slice(0, 60),
+    format: String(payload.format || 'html').slice(0, 20),
+    size: Buffer.byteLength(html),
+    file: id + '.html'
+  };
+  if (payload.engine) meta.engine = String(payload.engine).slice(0, 40);
+  // 文件头注入元数据注释：WebDAV 同步时即使 index.json 丢了也能自愈重建
+  const embedded = Object.assign({}, meta);
+  delete embedded.file;
+  const htmlWithMeta = '<!-- pv-meta:' + JSON.stringify(embedded) + ' -->\n' + html;
+  fs.writeFileSync(path.join(DATA_DIR, meta.file), htmlWithMeta, 'utf8');
+  const list = loadIndex();
+  list.push(meta);
+  saveIndex(list);
+  if (opts.touchExtension) touchExtension(); // 扩展刚保存过，状态栏立刻显示"已连接"
+  broadcastSaved(meta);
+  sync.schedule(syncConfig()); // 即时同步给其他端
+  return meta;
 }
 
 function sendFile(res, filepath, type) {
@@ -840,6 +954,48 @@ const server = http.createServer((req, res) => {
   }
 
   // Save a page
+  // 手机端收藏：只给一个链接，由服务端去抓。
+  // 手机上没有浏览器扩展那套「抓整页 DOM」的能力（Safari/微信都不给），所以这条路由是
+  // 手机端唯一可行的入口：微信里复制链接 → App 里粘贴 → 服务端抓 → 立刻出现在所有端。
+  if (req.method === 'POST' && p === '/api/pages/from-url') {
+    readBody(req, 1024 * 1024, (err, buf) => {
+      const bad = (code, msg) => send(res, code, JSON.stringify({ error: msg }), { 'Content-Type': 'application/json; charset=utf-8' });
+      if (err) return bad(413, '请求体太大');
+      let payload;
+      try { payload = JSON.parse(buf.toString('utf8')); }
+      catch { return bad(400, '参数格式不对'); }
+      const raw = String((payload && payload.url) || '').trim();
+      if (!/^https?:\/\//i.test(raw)) return bad(400, '请填 http:// 或 https:// 开头的网址');
+
+      fetchHtml(raw, 0).then(({ buffer, contentType, finalUrl }) => {
+        const looksHtml = /html|xml/i.test(contentType) ||
+          /^\s*(<!doctype|<html)/i.test(buffer.slice(0, 512).toString('utf8'));
+        if (!looksHtml) return bad(415, '这个链接不是网页（可能是 PDF、图片或文件下载）');
+        let html = decodePage(buffer, contentType);
+        if (!html || html.length < 200) return bad(502, '抓到的页面内容为空');
+        // 注入 <base>：原始 HTML 里的相对路径（图片/样式）要靠它解析回原站，
+        // 否则阅读页里全是裂图。绝对地址的图片后面还会被 /p/:id 改写成 /api/img 代理。
+        if (!/<base[\s>]/i.test(html)) {
+          const baseTag = '<base href="' + finalUrl.replace(/"/g, '&quot;') + '">';
+          if (/<head[^>]*>/i.test(html)) html = html.replace(/<head([^>]*)>/i, (mm, a) => '<head' + a + '>' + baseTag);
+          else html = baseTag + html;
+        }
+        const meta = persistPage({
+          html,
+          title: String((payload && payload.title) || '').trim() || pageTitle(html) || finalUrl,
+          url: finalUrl,
+          platform: String((payload && payload.platform) || 'mobile'),
+          format: 'html',
+          engine: 'from-url'
+        }, { touchExtension: false });
+        send(res, 200, JSON.stringify({
+          id: meta.id, title: meta.title, url: meta.url, savedAt: meta.savedAt, size: meta.size
+        }), { 'Content-Type': 'application/json; charset=utf-8' });
+      }).catch((e) => bad(502, friendlyFetchError(e)));
+    });
+    return;
+  }
+
   if (req.method === 'POST' && p === '/api/pages') {
     readBody(req, MAX_BODY, (err, buf) => {
       if (err) { send(res, 413, JSON.stringify({ error: 'payload too large' }), { 'Content-Type': 'application/json' }); return; }
@@ -853,29 +1009,8 @@ const server = http.createServer((req, res) => {
         return;
       }
 
-      const id = crypto.randomUUID();
-      const meta = {
-        id,
-        title: String(payload.title || 'Untitled').slice(0, 300),
-        url: String(payload.url || '').slice(0, 2000),
-        savedAt: new Date().toISOString(),
-        platform: String(payload.platform || 'unknown').slice(0, 60),
-        format: String(payload.format || 'html').slice(0, 20),
-        size: Buffer.byteLength(html),
-        file: id + '.html'
-      };
-      // 文件头注入元数据注释：WebDAV 同步时即使 index.json 丢了也能自愈重建
-      const embedded = Object.assign({}, meta);
-      delete embedded.file;
-      const htmlWithMeta = '<!-- pv-meta:' + JSON.stringify(embedded) + ' -->\n' + html;
-      fs.writeFileSync(path.join(DATA_DIR, meta.file), htmlWithMeta, 'utf8');
-      const list = loadIndex();
-      list.push(meta);
-      saveIndex(list);
-      touchExtension(); // 扩展刚保存过，状态栏立刻显示"已连接"
-      send(res, 200, JSON.stringify({ id, savedAt: meta.savedAt }), { 'Content-Type': 'application/json; charset=utf-8' });
-      broadcastSaved(meta);
-      sync.schedule(syncConfig()); // 即时同步给其他端
+      const meta = persistPage(payload, { touchExtension: true });
+      send(res, 200, JSON.stringify({ id: meta.id, savedAt: meta.savedAt }), { 'Content-Type': 'application/json; charset=utf-8' });
     });
     return;
   }

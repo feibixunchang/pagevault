@@ -20,6 +20,51 @@ const REPO = 'feibixunchang/pagevault';
 const LATEST_URL = `https://github.com/${REPO}/releases/latest`;
 const UA = 'WebVault-Updater';
 
+// 版本探测的多个来源：并发打，谁先解析出 tag 用谁。
+// v1.4.0 及以前只依赖 github.com 的 302 Location，一旦这条线路在国内网络超时/被拦，
+// 检查更新就彻底静默——用户看到的现象就是"明明有新版本，却从不提示"。这里加上
+// api.github.com 与几个镜像前缀作为兜底（实测 gh-proxy.com 代理 API 可用）。
+const LATEST_SOURCES = [
+  { id: 'github', url: LATEST_URL, kind: 'redirect' },
+  { id: 'gh-proxy.com', url: `https://gh-proxy.com/https://api.github.com/repos/${REPO}/releases/latest`, kind: 'json' },
+  { id: 'api.github.com', url: `https://api.github.com/repos/${REPO}/releases/latest`, kind: 'json' },
+  { id: 'ghfast.top', url: `https://ghfast.top/https://api.github.com/repos/${REPO}/releases/latest`, kind: 'json' },
+  { id: 'ghproxy.net', url: `https://ghproxy.net/https://api.github.com/repos/${REPO}/releases/latest`, kind: 'json' }
+];
+
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('超时 ' + Math.round(ms / 1000) + 's')), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
+// 从 302 的 Location 或 JSON 响应体里挖出版本 tag
+function extractTag(r) {
+  const norm = (s) => (s.startsWith('v') ? s : 'v' + s);
+  const loc = (r && r.headers && r.headers.location) || '';
+  let m = loc.match(/\/tag\/(v?\d+\.\d+\.\d+)/);
+  if (m) return norm(m[1]);
+  const text = r && r.body && r.body.length && r.body.length < 2 * 1024 * 1024 ? r.body.toString('utf8') : '';
+  if (!text) return null;
+  m = text.match(/"tag_name"\s*:\s*"(v?\d+\.\d+\.\d+)"/);
+  if (m) return norm(m[1]);
+  // 镜像可能直接返回 HTML 页面（跟随后重定向），页面里有 releases/tag/vX.Y.Z
+  m = text.match(/releases\/tag\/(v\d+\.\d+\.\d+)/);
+  return m ? m[1] : null;
+}
+
+async function probeLatest(src, timeoutMs) {
+  const r = await withTimeout(httpGet(src.url, {}, timeoutMs || 10000), (timeoutMs || 10000) + 1500);
+  if (r.status >= 400) throw new Error('HTTP ' + r.status);
+  const tag = extractTag(r);
+  if (!tag) throw new Error('无法解析版本号（HTTP ' + r.status + '）');
+  return tag;
+}
+
 // DNS 兜底（DoH + 双栈）。系统 DNS 被 VPN/加速器弄挂时，Node 原生请求会直接 ENOTFOUND，
 // 连 curl 也一样，所以这里复用 server/dnsx.js 先解析出 IP 再连。
 // 打包后布局：Contents/Resources/app/updater.js 与 Contents/Resources/server/dnsx.js 同级目录
@@ -180,24 +225,30 @@ class Updater {
     }
   }
 
-  // ---------- 版本探测：走 302 Location，不调 API ----------
+  // ---------- 版本探测：多来源并发，任一成功即可 ----------
   async checkLatest() {
     this.emit({ status: 'checking', error: '' });
-    try {
-      const r = await httpGet(LATEST_URL, {}, 12000);
-      // Location 形如 /feibixunchang/pagevault/releases/tag/v0.6.0
-      const m = (r.headers.location || '').match(/\/tag\/(v?[\d.]+)/);
-      if (!m) throw new Error('无法解析最新版本号（HTTP ' + r.status + '）');
-      const tag = m[1].startsWith('v') ? m[1] : 'v' + m[1];
-      const has = isNewer(tag, this.currentVersion);
-      this.emit(has
-        ? { status: 'available', remoteVersion: tag, error: '' }
-        : { status: 'not-available', remoteVersion: tag, error: '' });
-      return tag;
-    } catch (e) {
-      this.emit({ status: 'error', error: e.message });
+    const settled = await Promise.allSettled(LATEST_SOURCES.map(s => probeLatest(s, 10000)));
+    const errors = [];
+    let tag = null;
+    settled.forEach((r, i) => {
+      const id = LATEST_SOURCES[i].id;
+      if (r.status === 'fulfilled' && r.value) {
+        if (!tag) tag = r.value;
+      } else {
+        errors.push(id + '：' + ((r.reason && r.reason.message) || '失败'));
+      }
+    });
+    if (!tag) {
+      // 把每个来源的失败原因都带上，用户/日志里能看出是网络问题还是解析问题
+      this.emit({ status: 'error', error: errors.join('；') });
       return null;
     }
+    const has = isNewer(tag, this.currentVersion);
+    this.emit(has
+      ? { status: 'available', remoteVersion: tag, error: '' }
+      : { status: 'not-available', remoteVersion: tag, error: '' });
+    return tag;
   }
 
   // ---------- 渠道测速：Range 拉前 128KB，算带宽 ----------
@@ -362,4 +413,4 @@ class Updater {
   }
 }
 
-module.exports = { Updater, isNewer, parseVersion, channelUrls, assetName, assetNames, CHANNELS, REPO };
+module.exports = { Updater, isNewer, parseVersion, channelUrls, assetName, assetNames, CHANNELS, REPO, LATEST_SOURCES, probeLatest, extractTag };

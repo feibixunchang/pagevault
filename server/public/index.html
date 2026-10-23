@@ -164,18 +164,20 @@
   #installModal .pathRow span { flex:1; word-break:break-all; color:var(--muted); user-select:all; -webkit-user-select:all; cursor:text; }
   #installModal .pathRow button { border:1px solid var(--border); background:var(--panel); color:var(--text);
     border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; white-space:nowrap; }
-  #installModal .actions, #updateModal .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
-  #installModal .actions button, #updateModal .actions button { border:1px solid var(--border); background:var(--btn-bg); color:var(--btn-text);
+  #installModal .actions, #updateModal .actions, #addModal .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
+  #installModal .actions button, #updateModal .actions button, #addModal .actions button { border:1px solid var(--border); background:var(--btn-bg); color:var(--btn-text);
     border-radius:8px; padding:7px 16px; font-size:13px; cursor:pointer; }
-  #installModal .actions button.primary, #updateModal .actions button.primary { border-color:var(--accent); color:var(--accent); background:var(--accent-bg); }
-  #updateModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:210;
+  #installModal .actions button.primary, #updateModal .actions button.primary, #addModal .actions button.primary { border-color:var(--accent); color:var(--accent); background:var(--accent-bg); }
+  #updateModal, #addModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:210;
     align-items:center; justify-content:center; }
-  #updateModal.open { display:flex; }
-  #updateModal .card { background:var(--panel); border:1px solid var(--border); border-radius:14px;
+  #updateModal.open, #addModal.open { display:flex; }
+  #updateModal .card, #addModal .card { background:var(--panel); border:1px solid var(--border); border-radius:14px;
     width:min(460px,92vw); max-height:86vh; overflow:auto; padding:22px 26px; box-shadow:0 14px 50px rgba(0,0,0,.3); }
-  #updateModal h2 { font-size:15px; margin:0 0 4px; }
-  #updateModal .sub { font-size:12px; color:var(--muted); margin:0 0 14px; }
-  #updateModal .card { max-width:460px; }
+  #updateModal h2, #addModal h2 { font-size:15px; margin:0 0 4px; }
+  #updateModal .sub, #addModal .sub { font-size:12px; color:var(--muted); margin:0 0 14px; }
+  #updateModal .card, #addModal .card { max-width:460px; }
+  #addModal input { width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:9px;
+    background:var(--btn-bg); color:var(--btn-text); font:inherit; font-size:13px; box-sizing:border-box; }
   #updateChannels { margin:4px 0 12px; }
   #updateChannels .ch { display:flex; justify-content:space-between; align-items:center; font-size:12px;
     padding:7px 10px; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; background:var(--bg); }
@@ -243,6 +245,7 @@
     <span class="count" id="count"></span>
     <button id="onlyStarred" title="只看收藏的页面">☆ 收藏</button>
     <input id="search" placeholder="搜索标题或链接…" />
+    <button id="addBtn" title="粘贴链接保存">＋</button>
     <button id="updateEntry" class="upd-entry" style="display:none" title=""></button>
     <button id="fullsearch" title="同时搜索页面正文内容">全文</button>
     <button id="refresh" title="重新加载列表">↻ 刷新</button>
@@ -422,6 +425,20 @@
     </div>
   </div>
 
+  <div id="addModal">
+    <div class="card">
+      <h2 data-i18n="addTitle">保存文章</h2>
+      <p class="sub" data-i18n="addTip">粘贴一个链接，服务端会去抓这一页。手机上从微信或浏览器复制链接，粘到这里就能存。</p>
+      <input id="addUrl" placeholder="https://…" autocomplete="off" spellcheck="false" />
+      <div class="actions">
+        <button id="addPasteBtn" data-i18n="addPaste">粘贴</button>
+        <button id="addCancelBtn" data-i18n="cancel">取消</button>
+        <button id="addSaveBtn" class="primary" data-i18n="addSave">保存</button>
+      </div>
+      <p class="progText" id="addMsg" style="margin-top:10px"></p>
+    </div>
+  </div>
+
   <div id="offline"><div class="txt"><b data-i18n="offline">连不上本地服务</b><span data-i18n="offlineHint"></span></div><button id="retryBtn" data-i18n="retry">重试</button></div>
 
 <script src="/readability.js"></script>
@@ -477,6 +494,8 @@
       updInDocker: 'Docker 版更新：拉取新镜像后重启容器',
       updateFail: '检查失败', updateTitle: '发现新版本', updateVerLine: (a, b) => `v${a} → v${b}`,
       later: '以后再说', downloadInstall: '下载并安装', speedTesting: '正在测速各下载渠道…',
+      addTitle: '保存文章', addTip: '粘贴一个链接，服务端会去抓这一页。手机上从微信或浏览器复制链接，粘到这里就能存。',
+      addPaste: '粘贴', addSave: '保存', addSaved: n => '已保存：' + n, addFetching: '正在抓取页面…（大页面要几秒）', addNoURL: '先粘贴一个链接',
       speedResult: n => `${n} 个渠道可用，已选最快的`, noChannel: '所有下载渠道都连不上，请检查网络',
       downloading: p => '下载中 ' + p + '%', installing: '正在安装并重启…', installDone: '新版本已安装，正在重启',
       updateInstalled: '安装完成', fastest: '最快', updInDesktop: '自动更新需要在桌面客户端中进行',
@@ -561,6 +580,8 @@
       updInDocker: 'To update Docker: pull the new image and restart the container',
       updateFail: 'Check failed', updateTitle: 'New Version Available', updateVerLine: (a, b) => `v${a} → v${b}`,
       later: 'Later', downloadInstall: 'Download & Install', speedTesting: 'Testing download channels…',
+      addTitle: 'Save an article', addTip: 'Paste a link and the server will fetch that page. On a phone, copy the link from WeChat or your browser and paste it here.',
+      addPaste: 'Paste', addSave: 'Save', addSaved: n => 'Saved: ' + n, addFetching: 'Fetching the page… (big pages take a few seconds)', addNoURL: 'Paste a link first',
       speedResult: n => `${n} channels available — fastest selected`, noChannel: 'No channel reachable, check your network',
       downloading: p => 'Downloading ' + p + '%', installing: 'Installing and restarting…', installDone: 'Installed — restarting',
       updateInstalled: 'Done', fastest: 'Fastest', updInDesktop: 'Auto-update runs in the desktop app',
@@ -1147,6 +1168,64 @@
     try { window.open('chrome://extensions/', '_blank'); } catch { /* 忽略 */ }
   });
 
+  // ---------- 保存链接 ----------
+  // 手机上没有浏览器扩展那种「抓整页 DOM」的能力，所以给一个通用入口：
+  // 复制链接 → 粘进来 → 服务端去抓。网页版、手机 Safari、桌面端都能用。
+  const addModal = document.getElementById('addModal');
+  const addUrlInput = document.getElementById('addUrl');
+  const addMsg = document.getElementById('addMsg');
+  const addSaveBtn = document.getElementById('addSaveBtn');
+
+  function openAddModal() {
+    addMsg.textContent = '';
+    addModal.classList.add('open');
+    addUrlInput.focus();
+    // 手机浏览器多数不允许静默读剪贴板，读不到就算了，用户可以点「粘贴」
+    if (!addUrlInput.value && navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then((txt) => {
+        const s = (txt || '').trim();
+        if (/^https?:\/\//i.test(s) && !addUrlInput.value) addUrlInput.value = s;
+      }).catch(() => {});
+    }
+  }
+
+  document.getElementById('addBtn').addEventListener('click', openAddModal);
+  document.getElementById('addCancelBtn').addEventListener('click', () => addModal.classList.remove('open'));
+  addModal.addEventListener('click', (ev) => { if (ev.target === addModal) addModal.classList.remove('open'); });
+  document.getElementById('addPasteBtn').addEventListener('click', async () => {
+    try {
+      const txt = await navigator.clipboard.readText();
+      if (txt) { addUrlInput.value = txt.trim(); addMsg.textContent = ''; }
+    } catch { addMsg.textContent = t('addNoURL'); }
+  });
+  addUrlInput.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); saveByURL(); }
+  });
+  addSaveBtn.addEventListener('click', saveByURL);
+
+  async function saveByURL() {
+    const raw = addUrlInput.value.trim();
+    if (!raw) { addMsg.textContent = t('addNoURL'); return; }
+    addSaveBtn.disabled = true;
+    addMsg.textContent = t('addFetching');
+    try {
+      const r = await fetch('/api/pages/from-url', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: raw })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      addMsg.textContent = t('addSaved', j.title || raw);
+      addUrlInput.value = '';
+      await load();
+      setTimeout(() => addModal.classList.remove('open'), 900);
+    } catch (e) {
+      addMsg.textContent = (e && e.message) || 'failed';
+    } finally {
+      addSaveBtn.disabled = false;
+    }
+  }
+
   // ---------- 关于与更新（仅 Electron 桌面端有 window.pv） ----------
   const pv = window.pv || null;
   const updateModal = document.getElementById('updateModal');
@@ -1187,6 +1266,10 @@
     // 主进程 updater 事件 → 更新 UI
     pv.on('updater:event', (st) => {
       if (st.status === 'available' && st.remoteVersion) showUpdateEntry(st.remoteVersion);
+      if (st.status === 'error') {
+        // 自动检查失败不再完全静默：设置面板里能看到到底为什么失败
+        updateStatus.textContent = t('updateFail') + (st.error ? '：' + String(st.error).slice(0, 200) : '');
+      }
       if (st.status === 'downloading') {
         const pct = Math.round((st.progress || 0) * 100);
         updateProgWrap.style.display = 'block';
@@ -1222,7 +1305,7 @@
       } else if (r && r.tag) {
         updateStatus.textContent = t('latestVer');
       } else {
-        updateStatus.textContent = t('updateFail');
+        updateStatus.textContent = t('updateFail') + (r && r.error ? '：' + String(r.error).slice(0, 200) : '');
       }
     } catch (e) {
       updateStatus.textContent = t('updateFail') + '：' + (e && e.message ? e.message : e);

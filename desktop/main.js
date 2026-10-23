@@ -12,7 +12,7 @@ const net = require('net');
 const path = require('path');
 const os = require('os');
 
-const { Updater, assetNames } = require('./updater.js');
+const { Updater, assetNames, isNewer } = require('./updater.js');
 
 // 扩展目录：随安装包分发（Mac: Contents/Resources/extension，Win: 解压目录/extension）
 function extensionDir() {
@@ -78,10 +78,12 @@ let quitting = false;
 let serverRestarts = 0;
 
 // ---------- 自动更新 ----------
-// 版本探测走 github.com 的 302 Location（不依赖 API）；下载多渠道测速选最快。
+// 版本探测走多来源并发（github 302 / api.github.com / 镜像代理），下载多渠道测速选最快。
 const updater = new Updater({ currentVersion: app.getVersion() });
 const promptedVersions = new Set();   // 同一个版本只弹一次原生提示，别反复骚扰
-let lastCheckAt = 0;
+let lastCheckAt = 0;                   // 最后一次**成功**检查的时间
+let lastFailAt = 0;                    // 最后一次失败的时间（决定要不要早点重试）
+let retryTimer = null;
 
 updater.onEvent((st) => {
   log('updater event:', st.status, st.remoteVersion || '', st.error || '');
@@ -142,7 +144,15 @@ function readPref(key, dflt) {
 function setupUpdaterIPC() {
   ipcMain.handle('updater:check', async () => {
     const tag = await updater.checkLatest();
-    return { tag, hasUpdate: !!tag };
+    const local = app.getVersion();
+    // 注意：checkLatest 无论"有新版"还是"已是最新"都会返回 tag，
+    // 以前这里写 hasUpdate: !!tag 导致每次手动检查都当成有新版本。
+    return {
+      tag,
+      hasUpdate: !!tag && isNewer(tag, local),
+      currentVersion: local,
+      error: tag ? '' : (updater.state.error || '')
+    };
   });
 
   ipcMain.handle('updater:channels', async (_e, tag) => {
@@ -195,16 +205,58 @@ async function checkWithRetry() {
   for (let i = 0; i < delays.length; i++) {
     if (delays[i]) await new Promise(r => setTimeout(r, delays[i]));
     const tag = await updater.checkLatest();
-    lastCheckAt = Date.now();
-    if (tag) return tag;                 // 成功（含"已是最新"）就不再重试
+    if (tag) {
+      lastCheckAt = Date.now();
+      return tag;                        // 成功（含"已是最新"）就不再重试
+    }
   }
-  log('update check failed after retries');
+  lastFailAt = Date.now();
+  log('update check failed after retries:', updater.state.error || '');
+  // 失败后 30 分钟再试一次：原来要等 6 小时的定时器，刚开机没网/代理没起来的人
+  // 基本就错过整个版本了（Windows 端"有新版本却不提示"多半就是这一条）。
+  if (retryTimer) return null;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (readPref('autoUpdate', true) === false) return;
+    checkWithRetry();
+  }, 30 * 60 * 1000);
+  if (retryTimer.unref) retryTimer.unref();
   return null;
 }
 
-function checkForUpdatesFromMenu() {
-  if (!mainWin || mainWin.isDestroyed()) return;
-  mainWin.webContents.send('updater:menu-check');
+// 菜单「检查更新…」：主进程自己查、自己弹结果。
+// 不能只往渲染进程发事件——页面还没加载完 / preload 挂了（v1.2.0~v1.4.0 就是这种情况）
+// 时，发过去就是石沉大海，用户点完菜单什么反应都没有。
+async function checkForUpdatesFromMenu() {
+  const { zh } = uiLang();
+  const parent = mainWin && !mainWin.isDestroyed() ? mainWin : null;
+  const local = app.getVersion();
+  const tag = await updater.checkLatest();
+  if (!tag) {
+    dialog.showMessageBox(parent, {
+      type: 'error',
+      buttons: [zh ? '知道了' : 'OK'],
+      noLink: true,
+      title: zh ? '检查更新失败' : 'Update check failed',
+      message: zh ? '连不上 GitHub，暂时无法检查新版本' : 'Could not reach GitHub',
+      detail: ((updater.state.error || '') + (zh
+        ? '\n\n更新检查会走 GitHub 官方和多个镜像，全都失败通常是网络/代理问题。稍后会自动重试。'
+        : '\n\nThe check tries GitHub and several mirrors. All failing usually means a network/proxy issue. It will retry later.'))
+    }).catch(() => {});
+    return;
+  }
+  if (!isNewer(tag, local)) {
+    dialog.showMessageBox(parent, {
+      type: 'info',
+      buttons: [zh ? '好的' : 'OK'],
+      noLink: true,
+      title: zh ? '已是最新版本' : 'Up to date',
+      message: zh ? `当前 ${local}，已是最新版本` : `You are on ${local}, the latest version`
+    }).catch(() => {});
+    return;
+  }
+  promptedVersions.delete(tag);   // 手动检查必须弹，不受"只提示一次"限制
+  promptUpdate(tag);
 }
 
 // 显式钉死数据目录：不随 app 显示名（网页收藏）变化，保证升级/改名不丢库。
@@ -386,7 +438,9 @@ function createWindow(url) {
   // 长时间挂着（笔记本合盖一晚上）后再回到应用，顺手补一次检查，别等到 6 小时定时器
   win.on('focus', () => {
     if (readPref('autoUpdate', true) === false) return;
+    // 成功过：2 小时内不重复查；上次失败：10 分钟后允许再试（别让关机重开也干等 6 小时）
     if (lastCheckAt && Date.now() - lastCheckAt < 2 * 3600 * 1000) return;
+    if (lastFailAt && Date.now() - lastFailAt < 10 * 60 * 1000) return;
     checkWithRetry();
   });
   return win;

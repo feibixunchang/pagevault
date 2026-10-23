@@ -46,11 +46,21 @@ final class APIClient {
         if !token.isEmpty {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        return try await send(req)
+    }
+
+    /// 统一的发送 + 错误翻译。服务端会把失败原因放在 {"error": "..."}（中文），
+    /// 直接显示给用户比「服务端返回 HTTP 502」有用得多。
+    private func send(_ req: URLRequest) async throws -> Data {
         do {
             let (data, response) = try await session.data(for: req)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 if http.statusCode == 401 { throw APIError(message: "鉴权失败（令牌不对）") }
                 if http.statusCode == 404 { throw APIError(message: "接口不存在，服务端版本可能太旧") }
+                if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let msg = obj["error"] as? String, !msg.isEmpty {
+                    throw APIError(message: msg)
+                }
                 throw APIError(message: "服务端返回 HTTP \(http.statusCode)")
             }
             return data
@@ -107,5 +117,30 @@ final class APIClient {
 
     func delete(id: String) async throws {
         _ = try await fetch("/api/pages/" + id, method: "DELETE")
+    }
+
+    /// 手机端收藏：只把网址交给服务端，由服务端去抓页面。
+    /// 手机上拿不到浏览器扩展那种「整页 DOM」，这是唯一可行的保存方式。
+    /// 返回新页面的 id；抓不到时服务端会给出中文原因，由 send() 抛出来。
+    func saveFromURL(_ rawURL: String, title: String? = nil) async throws -> String? {
+        guard let url = URL(string: "/api/pages/from-url", relativeTo: base) else {
+            throw APIError(message: "服务端地址无效")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 60          // 服务端要去抓页面，比普通请求慢，给足时间
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        var body: [String: String] = ["url": rawURL, "platform": "ios"]
+        if let t = title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+            body["title"] = t
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let data = try await send(req)
+        struct Reply: Decodable { var id: String? }
+        return (try? JSONDecoder().decode(Reply.self, from: data))?.id
     }
 }
