@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 主题里用到的自定义属性（不依赖 appcompat，框架主题也支持） -->
+    <attr name="pvCard" format="color" />
+    <attr name="pvBorder" format="color" />
+    <attr name="pvMuted" format="color" />
+    <attr name="pvAccentSoft" format="color" />
+    <attr name="pvStar" format="color" />
+</resources>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 浅色主题 -->
+    <style name="Theme.PageVault.Light" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorBackground">#f6f7f9</item>
+        <item name="android:textColorPrimary">#1f2933</item>
+        <item name="android:textColorSecondary">#6b7280</item>
+        <item name="android:colorAccent">#185fa5</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#ffffff</item>
+        <item name="pvCard">#ffffff</item>
+        <item name="pvBorder">#e3e6ea</item>
+        <item name="pvMuted">#8a919b</item>
+        <item name="pvAccentSoft">#e8f0f8</item>
+        <item name="pvStar">#d29922</item>
+    </style>
+
+    <!-- 深色主题 -->
+    <style name="Theme.PageVault.Dark" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:colorBackground">#131518</item>
+        <item name="android:textColorPrimary">#dde1e6</item>
+        <item name="android:textColorSecondary">#9aa3af</item>
+        <item name="android:colorAccent">#6cb2f2</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#1b1e22</item>
+        <item name="pvCard">#1b1e22</item>
+        <item name="pvBorder">#2e3340</item>
+        <item name="pvMuted">#7d8590</item>
+        <item name="pvAccentSoft">#1e2833</item>
+        <item name="pvStar">#e3b341</item>
+    </style>
+
+    <style name="PvText">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+    </style>
+
+    <style name="PvTextMuted">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">?attr/pvMuted</item>
+    </style>
+
+    <style name="PvTitle">
+        <item name="android:textSize">17sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+    </style>
+
+    <style name="PvButton">
+        <item name="android:background">@drawable/btn_bg</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:paddingLeft">18dp</item>
+        <item name="android:paddingRight">18dp</item>
+        <item name="android:paddingTop">9dp</item>
+        <item name="android:paddingBottom">9dp</item>
+    </style>
+</resources>

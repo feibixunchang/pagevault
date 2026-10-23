@@ -420,6 +420,37 @@ open ios/PageVault.xcodeproj     # 打开工程
 > 免费账号签的 App 7 天过期，到期重跑一次 ⌘R 即可。
 > 细节、重构工程、命令行编译见 [`ios/README.md`](ios/README.md)。
 
+## Android 端（原生 APK）
+
+和 iOS 端同一套服务端接口，纯 Java + 框架 API 写的，**不依赖任何第三方库**
+（网络用 `HttpURLConnection`，JSON 用系统自带的 `org.json`，界面用原生 View）。
+
+功能与 iOS 端对齐：
+
+- 列表 / 搜索 / 全部·收藏筛选 / 星标 / 长按删除
+- 点开阅读：WebView 读服务端存的整页 HTML，图片走服务端 `/api/img` 代理，**断网也能看**
+- **只显示正文**（默认开）：用服务端的 `readability.js` 抽正文，去掉导航、侧栏、推荐流
+- 字号 15–24px、**粗体**、正文字体（系统 / 宋体 / 黑体 / 楷体，楷体可下载霞鹜文楷）
+- 外观：跟随系统 / 浅色 / 深色
+- ＋ 粘贴链接保存（服务端代抓页面，和 iOS 同一个接口）
+
+### 安装
+
+下载 `PageVault-<版本>-android.apk`，传到手机点开安装（需要允许「安装未知来源应用」）。
+装好后打开 App，进设置填服务端地址（NAS `http://192.168.1.2:8731`），点「测试连接」验证。
+
+### 自己构建
+
+```bash
+bash android/build.sh          # 需要 ANDROID_HOME 与 JDK 17
+# 产物：android/dist/PageVault-<版本>-android.apk
+```
+
+构建**不走 Gradle**：用 SDK 自带的 `aapt2 + javac + d8 + apksigner` 直接拼 APK，
+既不用下载 Gradle 发行包，也不用联网解析 Maven 依赖，在任何装了 Android SDK 的机器上都能一条命令出包。
+
+> 签名用的是仓库内的调试密钥（`android/keys/debug.keystore`），保证以后升级能直接覆盖安装。
+
 ## 在 Mac 上运行（MVP）
 
 ### 方式 A：桌面端 App（推荐）

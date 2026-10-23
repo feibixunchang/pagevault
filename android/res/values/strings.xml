@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">网页收藏</string>
+
+    <string name="tab_all">全部 %1$d</string>
+    <string name="tab_star">★ 收藏 %1$d</string>
+    <string name="search_hint">搜索标题或链接…</string>
+    <string name="add_title">保存文章</string>
+    <string name="add_hint">https://…</string>
+    <string name="add_tip">在微信、浏览器里长按复制链接，回到这里粘贴即可。服务端会去抓取这一页，存好后所有设备都能离线看。</string>
+    <string name="add_paste">从剪贴板粘贴</string>
+    <string name="add_save">保存</string>
+    <string name="add_cancel">取消</string>
+    <string name="add_fetching">正在抓取页面…（大页面要几秒）</string>
+    <string name="add_saved">已保存</string>
+    <string name="add_no_url">先粘贴一个网址</string>
+    <string name="add_title_opt">标题（可选）</string>
+    <string name="add_title_hint">留空自动取网页标题</string>
+
+    <string name="settings_title">设置</string>
+    <string name="settings_server">服务端地址</string>
+    <string name="settings_server_hint">http://192.168.1.2:8731</string>
+    <string name="settings_server_tip">填你运行「网页收藏」的电脑或 NAS，例如 http://192.168.1.2:8731。手机要和它在同一个网络。</string>
+    <string name="settings_test">测试连接</string>
+    <string name="settings_test_ok">连接正常（%1$s）</string>
+    <string name="settings_test_fail">连不上：%1$s</string>
+    <string name="settings_appearance">外观</string>
+    <string name="settings_theme_auto">跟随系统</string>
+    <string name="settings_theme_light">浅色</string>
+    <string name="settings_theme_dark">深色</string>
+    <string name="settings_fontsize">字号</string>
+    <string name="settings_bold">粗体</string>
+    <string name="settings_bold_tip">正文与界面文字一起加粗</string>
+    <string name="settings_reader">只显示正文</string>
+    <string name="settings_reader_tip">用 Readability 抽取正文，去掉页头、侧栏、推荐流</string>
+    <string name="settings_font">正文字体</string>
+    <string name="settings_font_system">系统</string>
+    <string name="settings_font_songti">宋体</string>
+    <string name="settings_font_heiti">黑体</string>
+    <string name="settings_font_kaiti">楷体</string>
+    <string name="settings_font_download">下载</string>
+    <string name="settings_font_downloading">下载中…</string>
+    <string name="settings_font_done">已安装</string>
+    <string name="settings_font_need">需下载</string>
+    <string name="settings_font_fail">下载失败：%1$s</string>
+    <string name="settings_storage">占用</string>
+    <string name="settings_version">版本</string>
+
+    <string name="reader_original">原网页</string>
+    <string name="reader_article">只读正文</string>
+    <string name="reader_text">正文</string>
+    <string name="reader_not_article">这个页面抓不出正文，显示原网页吧</string>
+    <string name="reader_fail">正文提取失败：%1$s</string>
+    <string name="confirm_del">确定删除这篇收藏？</string>
+    <string name="del_ok">已删除</string>
+    <string name="del_fail">删除失败</string>
+    <string name="offline">连不上本地服务</string>
+    <string name="retry">重试</string>
+    <string name="loading">加载中…</string>
+    <string name="empty">还没有收藏\n在电脑上用扩展一键保存，或点右上角 ＋ 粘贴链接</string>
+    <string name="load_fail">加载失败：%1$s</string>
+    <string name="size_kb">%1$d KB</string>
+    <string name="size_mb">%1$.1f MB</string>
+</resources>

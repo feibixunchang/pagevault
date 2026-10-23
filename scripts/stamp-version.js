@@ -132,6 +132,19 @@ if (fs.existsSync(IOS_SPEC)) {
     }
     if (!checkOnly && pb !== pbOrig) fs.writeFileSync(IOS_PROJ, pb);
   }
+
+  // 5c) 安卓端（不用 Gradle，没有自动生成的 BuildConfig，手写一份）
+  const ANDROID_BUILD_CONFIG = path.join(ROOT, 'android', 'java', 'com', 'feibixunchang', 'pagevault', 'BuildConfig.java');
+  if (fs.existsSync(ANDROID_BUILD_CONFIG)) {
+    let bc = fs.readFileSync(ANDROID_BUILD_CONFIG, 'utf8');
+    const bcOrig = bc;
+    const curV = (bc.match(/VERSION\s*=\s*"([^"]+)"/) || [])[1];
+    if (curV !== version) {
+      problems.push('android BuildConfig.VERSION ' + curV + ' → ' + version);
+      bc = bc.replace(/(VERSION\s*=\s*")[^"]+(")/, '$1' + version + '$2');
+    }
+    if (!checkOnly && bc !== bcOrig) fs.writeFileSync(ANDROID_BUILD_CONFIG, bc);
+  }
 }
 
 if (problems.length === 0) {
