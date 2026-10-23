@@ -13,7 +13,36 @@
 - **离线**：读过的页面正文自动存本地（`Application Support/PageVault/pages/`），断网照样能读；
   图片等远程资源需要联网
 - **回前台自动刷新**：在电脑上刚存的页面，切回手机就能看见
+- **外观与字体**：跟随系统/浅色/深色；字号 5 档、粗体开关、字体（苹方/宋体/黑体/楷体）——
+  这三项**作用于整个界面**（列表、设置、按钮、导航栏）以及阅读页正文，不只是正文
+- **只显示正文**：去掉导航、侧栏、广告、评论区，只留文章
 - **设置**：服务端地址（默认 `http://192.168.100.3:8731`）、测试连接、网络诊断、缓存大小、清空缓存
+
+## 字号 / 粗体 / 字体怎么落到"整个界面"
+
+三个文件分工，改字体相关的需求先看这里：
+
+- `AppType.swift` —— 字族 + 粗细的环境值，外加 `.pvFont(.footnote)` 这类修饰符。
+  视图里**不要再写 `.font(.system(size:))`**，一律 `.pvFont(...)`，
+  否则那一处就不会跟着设置走。
+- `PageVaultApp.swift` —— 在根节点注入三样东西：`\.appType`、
+  `.dynamicTypeSize(store.dynamicTypeSize)`（字号 5 档映射到系统动态字型，
+  表单/开关/分段控件/标题一起缩放）、`\.font`（没显式设字体的文字兜底）。
+- `NavBarFont.swift` —— 导航栏标题和右上角按钮是 UIKit 画的，SwiftUI 的字体环境够不到，
+  所以单独用 `UINavigationBarAppearance` 喂 `UIFont`（appearance 代理只对新建的栏生效，
+  已经在屏幕上的要遍历窗口刷一遍）。
+
+字体本身：iOS **只自带苹方**（实测 iOS 27 上 Songti SC / Kaiti SC / Yuanti SC 全都不存在），
+所以宋体/黑体/楷体走 `FontCatalog.swift` 下载开源字体（思源宋体 / 思源黑体 / 霞鹜文楷），
+用 `CTFontManagerRegisterFontsForURL(.process)` 注册——**注册不跨进程**，
+每次启动都要在 `Store.init` 里重新注册一次。
+
+下载有两个坑已经踩过，别改回去：
+
+1. 不能用 `URLSession.bytes` 逐字节 `for await`：一个 10MB 字体要迭代上千万次，
+   实际等于永远下不完（表现是进度条一直 0%）。要用 `URLSessionDownloadTask` + delegate 报进度。
+2. 镜像顺序是实测出来的：`ghfast.top` / `ghproxy.net` / `gh-proxy.com` 能完整拿到 10MB+；
+   jsDelivr 对 `noto-cjk` 这种大仓库**直接 404**（没被索引），只适合 LXGW 小仓库，所以放最后。
 
 ## 连不上服务端怎么查
 
