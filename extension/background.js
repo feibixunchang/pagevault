@@ -46,6 +46,7 @@ async function ping(force) {
 let ws = null;
 let wsRetry = 0;
 let wsTimer = null;
+let wsKeepTimer = null;
 
 function wsUrl(base) {
   const u = new URL(base.replace(/\/$/, ''));
@@ -84,6 +85,12 @@ async function connectWS() {
     wsRetry = 0;
     sendWS({ type: 'hello', v: EXT_VERSION });
     ping(true);           // 顺手补一次 HTTP 心跳，老服务端也能看到
+    // 主动保活：每 20 秒发一条，服务端据此刷新"最后在线时间"；
+    // 同时让 Chrome 不会因为 service worker 空闲太久把扩展挂掉。
+    try {
+      clearInterval(wsKeepTimer);
+      wsKeepTimer = setInterval(() => { sendWS({ type: 'ping', v: EXT_VERSION }); }, 20000);
+    } catch { /* ignore */ }
   };
   sock.onmessage = (ev) => {
     try {
