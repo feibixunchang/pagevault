@@ -28,6 +28,20 @@ final class Store: ObservableObject {
     @Published var readerFont: ReaderFont {
         didSet { persist(readerFont.rawValue, Keys.readerFont) }
     }
+    @Published var boldText: Bool {
+        didSet { persist(boldText, Keys.boldText) }
+    }
+
+    // MARK: - 字体下载
+
+    struct FontJob: Equatable {
+        let id: String
+        var progress: Double
+    }
+
+    @Published private(set) var installedFonts: Set<String> = []
+    @Published private(set) var fontJob: FontJob?
+    @Published var fontDownloadError: String?
 
     /// 调试启动参数改的偏好不写盘，免得污染用户真实设置
     private var suppressPersist = false
@@ -42,6 +56,7 @@ final class Store: ObservableObject {
         static let readerMode = "pv.readerMode"
         static let fontSize = "pv.fontSize"
         static let readerFont = "pv.readerFont"
+        static let boldText = "pv.boldText"
     }
 
     /// 可选字号档位（正文基准 px）
@@ -73,13 +88,18 @@ final class Store: ObservableObject {
         let size = d.double(forKey: Keys.fontSize)
         fontSize = size > 0 ? size : 17
         readerFont = ReaderFont(rawValue: d.string(forKey: Keys.readerFont) ?? "") ?? .system
+        boldText = d.object(forKey: Keys.boldText) as? Bool ?? false
+
+        // 已下载的字体要在每个进程启动时重新注册一次，否则 CSS 里的字族名找不到
+        FontCatalog.registerAll()
+        installedFonts = FontCatalog.installedIDs()
 
         let cached = Cache.shared.loadIndex()
         if !cached.isEmpty { pages = cached }
 
         #if DEBUG
         // 命令行验证界面用（suppressPersist 保证不写盘）：
-        //   -- -pvTheme dark -pvFontSize 24 -pvFont songti [-- -pvOriginal]
+        //   -- -pvTheme dark -pvFontSize 24 -pvFont songti -pvBold -pvOpenIndex 0
         suppressPersist = true
         let args = ProcessInfo.processInfo.arguments
         func value(_ flag: String) -> String? {
@@ -90,13 +110,98 @@ final class Store: ObservableObject {
         if let s = value("-pvFontSize"), let v = Double(s) { fontSize = v }
         if let f = value("-pvFont"), let v = ReaderFont(rawValue: f) { readerFont = v }
         if args.contains("-pvOriginal") { readerMode = false }
+        if args.contains("-pvBold") { boldText = true }
+        if args.contains("-pvNoBold") { boldText = false }
+        if args.contains("-pvListFonts") {
+            for family in UIFont.familyNames.sorted() {
+                let names = UIFont.fontNames(forFamilyName: family).joined(separator: " ~ ")
+                print("PVFONT|\(family)|\(names)")
+            }
+        }
         suppressPersist = false
         #endif
     }
 
     /// 传给阅读页的样式快照
     var readerStyle: ReaderStyle {
-        ReaderStyle(reader: readerMode, fontSize: fontSize, font: readerFont, isDark: theme.isDark)
+        ReaderStyle(reader: readerMode,
+                    fontSize: fontSize,
+                    fontCSS: readerFont.cssStack(installed: installedFonts),
+                    bold: boldText,
+                    isDark: theme.isDark)
+    }
+
+    /// 整个界面统一的字体（列表、设置、按钮全部用它）
+    var appType: AppType {
+        AppType(family: readerFont.uiFamily(installed: installedFonts), bold: boldText)
+    }
+
+    /// 字号档位 → 动态字型档位。界面靠这一档整体缩放，
+    /// 系统控件（表单、开关、分段控件、标题）会一起变大变小。
+    var dynamicTypeSize: DynamicTypeSize {
+        switch fontSize {
+        case ..<16: return .small
+        case ..<18: return .large
+        case ..<20: return .xLarge
+        case ..<22: return .xxLarge
+        default: return .xxxLarge
+        }
+    }
+
+    /// 和上面那五档一一对应的纯比例，给导航栏这类拿不到动态字型的 UIKit 控件用
+    var uiScale: CGFloat {
+        switch fontSize {
+        case ..<16: return 0.88
+        case ..<18: return 1.0
+        case ..<20: return 1.12
+        case ..<22: return 1.23
+        default: return 1.35
+        }
+    }
+
+    /// 当前选中字体是否已经可用（未下载时阅读页会退回系统字体）
+    var selectedFontNeedsDownload: Bool {
+        readerFont.needsDownload(installed: installedFonts)
+    }
+
+    // MARK: - 字体下载
+
+    func downloadFont(_ font: ReaderFont) async {
+        guard let spec = font.spec else { return }
+        guard fontJob == nil else { return }
+        fontDownloadError = nil
+        fontJob = FontJob(id: spec.id, progress: 0)
+        do {
+            try await FontCatalog.download(spec) { p in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if var job = self.fontJob, job.id == spec.id {
+                        job.progress = p
+                        self.fontJob = job
+                    }
+                }
+            }
+            installedFonts = FontCatalog.installedIDs()
+            if !installedFonts.contains(spec.id) {
+                fontDownloadError = "字体下载完了但注册失败，换个字体试试"
+            }
+        } catch {
+            fontDownloadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        fontJob = nil
+    }
+
+    func removeFont(_ font: ReaderFont) {
+        guard let spec = font.spec else { return }
+        FontCatalog.remove(spec)
+        installedFonts = FontCatalog.installedIDs()
+    }
+
+    var fontsSizeText: String {
+        let bytes = FontCatalog.specs
+            .filter { installedFonts.contains($0.id) }
+            .reduce(0.0) { $0 + $1.sizeMB }
+        return bytes > 0 ? String(format: "%.1f MB", bytes) : "0 MB"
     }
 
     var fontSizeLabel: String {

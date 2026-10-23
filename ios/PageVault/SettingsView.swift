@@ -27,7 +27,7 @@ struct SettingsView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
-                        .font(.system(size: 15, design: .monospaced))
+                        .pvFont(.subheadline, design: .monospaced)
                 } header: {
                     Text("服务端地址")
                 } footer: {
@@ -36,7 +36,7 @@ struct SettingsView: View {
                         Button("用家里 NAS") {
                             store.serverURLString = Store.defaultServerURL
                         }
-                        .font(.footnote)
+                        .pvFont(.footnote)
                     }
                 }
 
@@ -60,7 +60,7 @@ struct SettingsView: View {
 
                     if let r = testResult {
                         Text(r.message)
-                            .font(.footnote)
+                            .pvFont(.footnote)
                             .foregroundColor(r.ok ? .green : .red)
                     }
 
@@ -81,25 +81,25 @@ struct SettingsView: View {
                 Section {
                     LabeledContent("手机 Wi-Fi") {
                         if let ip = wifiIP {
-                            Text(ip).font(.system(size: 15, design: .monospaced))
+                            Text(ip).pvFont(.subheadline, design: .monospaced)
                         } else {
                             Text(NetworkInfo.hasCellular() ? "未连接 Wi-Fi（在用蜂窝数据）" : "未连接")
                                 .foregroundColor(.orange)
                         }
                     }
                     LabeledContent("服务端主机") {
-                        Text(serverHost ?? "—").font(.system(size: 15, design: .monospaced))
+                        Text(serverHost ?? "—").pvFont(.subheadline, design: .monospaced)
                     }
                     if let ip = wifiIP, let host = serverHost {
                         if host.rangeOfCharacter(from: CharacterSet.letters) != nil {
                             Text("服务端是域名，走公网解析，不受手机网段影响。")
-                                .font(.footnote).foregroundColor(.secondary)
+                                .pvFont(.footnote).foregroundColor(.secondary)
                         } else if NetworkInfo.sameSubnet(ip, host) {
                             Text("同一网段，可以直接连。")
-                                .font(.footnote).foregroundColor(.green)
+                                .pvFont(.footnote).foregroundColor(.green)
                         } else {
                             Text("不在同一网段（手机 \(ip) / 服务端 \(host)），检查手机是不是连了别的 Wi-Fi。")
-                                .font(.footnote).foregroundColor(.red)
+                                .pvFont(.footnote).foregroundColor(.red)
                         }
                     }
                 } header: {
@@ -127,7 +127,7 @@ struct SettingsView: View {
                 Section {
                     LabeledContent("客户端版本", value: appVersion)
                     Text("iOS 端：原生列表 + 本地缓存 + 内置阅读器。与 Mac / Windows / 扩展共用同一个服务端，收藏实时同步。")
-                        .font(.footnote)
+                        .pvFont(.footnote)
                         .foregroundColor(.secondary)
                 } header: {
                     Text("关于")

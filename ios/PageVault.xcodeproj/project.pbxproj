@@ -17,6 +17,9 @@
 		4FA67AD3DCDF8FAC0F3EC29C /* ReaderStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1731058CBF228A11B07E7437 /* ReaderStyle.swift */; };
 		5B2B9A555F9874E7F5ADF87A /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 933328C4F1AD43ADB448136F /* Store.swift */; };
 		633528F48DD3081C15B6BACE /* ReaderScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070FC6DC190141B1ED6D98D7 /* ReaderScript.swift */; };
+		702E747B7BD2787D104A3F4D /* AppType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CCCDBF0EAD664FC23C5B56D /* AppType.swift */; };
+		B7C1ECB1C9706D440EC8A98F /* NavBarFont.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF91A8C3A9A4BA9EFAB97BD /* NavBarFont.swift */; };
+		8E22A421B03BA422E72FD63F /* FontCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F161EC3B658B00FB282AE89D /* FontCatalog.swift */; };
 		6518BC372E89408B3BAC7B43 /* NetworkInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43D1E5A1EA42DB2BC4EBB22A /* NetworkInfo.swift */; };
 		B779DEE0FD2875A35AABB7AC /* Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01BD8E4E6BB2E067D5DD1331 /* Cache.swift */; };
 		CFB48AE7D1642D99BD408439 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E078898BA61D7880A43C6EFE /* APIClient.swift */; };
@@ -27,6 +30,9 @@
 		0497F167B18C92DC40370A54 /* ReaderStyleControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderStyleControls.swift; sourceTree = "<group>"; };
 		06B00866292B30FA763D913D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		070FC6DC190141B1ED6D98D7 /* ReaderScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderScript.swift; sourceTree = "<group>"; };
+		2CCCDBF0EAD664FC23C5B56D /* AppType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppType.swift; sourceTree = "<group>"; };
+		5DF91A8C3A9A4BA9EFAB97BD /* NavBarFont.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavBarFont.swift; sourceTree = "<group>"; };
+		F161EC3B658B00FB282AE89D /* FontCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontCatalog.swift; sourceTree = "<group>"; };
 		1731058CBF228A11B07E7437 /* ReaderStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderStyle.swift; sourceTree = "<group>"; };
 		29B222E4A6B9A27484CD88F7 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
 		43D1E5A1EA42DB2BC4EBB22A /* NetworkInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkInfo.swift; sourceTree = "<group>"; };
@@ -52,6 +58,9 @@
 				43D1E5A1EA42DB2BC4EBB22A /* NetworkInfo.swift */,
 				B11FF8EEB3672C515E0519CF /* PageVaultApp.swift */,
 				070FC6DC190141B1ED6D98D7 /* ReaderScript.swift */,
+				2CCCDBF0EAD664FC23C5B56D /* AppType.swift */,
+				5DF91A8C3A9A4BA9EFAB97BD /* NavBarFont.swift */,
+				F161EC3B658B00FB282AE89D /* FontCatalog.swift */,
 				1731058CBF228A11B07E7437 /* ReaderStyle.swift */,
 				0497F167B18C92DC40370A54 /* ReaderStyleControls.swift */,
 				29B222E4A6B9A27484CD88F7 /* ReaderView.swift */,
@@ -155,6 +164,9 @@
 				6518BC372E89408B3BAC7B43 /* NetworkInfo.swift in Sources */,
 				011948A75FF729F71ACAAC54 /* PageVaultApp.swift in Sources */,
 				633528F48DD3081C15B6BACE /* ReaderScript.swift in Sources */,
+				702E747B7BD2787D104A3F4D /* AppType.swift in Sources */,
+				B7C1ECB1C9706D440EC8A98F /* NavBarFont.swift in Sources */,
+				8E22A421B03BA422E72FD63F /* FontCatalog.swift in Sources */,
 				4FA67AD3DCDF8FAC0F3EC29C /* ReaderStyle.swift in Sources */,
 				00F0D67943E733BABCA8EB3B /* ReaderStyleControls.swift in Sources */,
 				3D5E893352B5D3F477C43BAB /* ReaderView.swift in Sources */,
