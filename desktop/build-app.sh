@@ -8,12 +8,33 @@ set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DESKTOP=$ROOT/desktop
 SERVER=$ROOT/server
-SRC_ELECTRON=$DESKTOP/node_modules/electron/dist/Electron.app
+SRC_ELECTRON=${ELECTRON_SRC:-$DESKTOP/node_modules/electron/dist/Electron.app}
 OUT=$DESKTOP/dist/网页收藏.app
 
 # 0. 版本号单一来源：desktop/package.json → server/server.js、server/package.json、
 #    extension/manifest.json（避免各端版本号错位导致更新判断失效）
 node "$ROOT/scripts/stamp-version.js"
+
+# 0b. 可选交叉架构：ARCH=x64 或 ARCH=arm64。
+#     electron 的 install.js 只要发现 dist/ 里已有同版本就直接 return，换架构必须换 dist。
+#     但直接删 node_modules/electron/dist 会被工作区的安全删除护栏拦下（一次上百个文件），
+#     所以这里不动 node_modules：把目标架构的 Electron 下到 /tmp/electron-dist-<arch> 缓存，
+#     再用 ELECTRON_SRC 指过去。缓存命中就不再下载。
+HOST_ARCH=$(uname -m); [ "$HOST_ARCH" = "x86_64" ] && HOST_ARCH=x64
+if [ -n "$ARCH" ] && [ "$ARCH" != "$HOST_ARCH" ]; then
+  ELE_VER=$(node -p "require('$DESKTOP/node_modules/electron/package.json').version")
+  ELE_CACHE=/tmp/electron-dist-$ARCH-$ELE_VER
+  if [ ! -d "$ELE_CACHE/Electron.app" ]; then
+    echo "交叉构建：主机 $HOST_ARCH → 目标 $ARCH，下载 Electron $ELE_VER（$ARCH）"
+    mkdir -p "$ELE_CACHE"
+    curl -fL --retry 2 -o "$ELE_CACHE/e.zip" \
+      "https://github.com/electron/electron/releases/download/v$ELE_VER/electron-v$ELE_VER-darwin-$ARCH.zip"
+    unzip -q -o "$ELE_CACHE/e.zip" -d "$ELE_CACHE"
+    rm -f "$ELE_CACHE/e.zip"
+  fi
+  SRC_ELECTRON="$ELE_CACHE/Electron.app"
+fi
+echo "Electron 源：$SRC_ELECTRON"
 
 mkdir -p "$DESKTOP/dist"
 

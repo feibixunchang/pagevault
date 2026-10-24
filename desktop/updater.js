@@ -170,7 +170,16 @@ async function httpGetStream(url, headers, timeoutMs) {
 function assetNames(platform, version) {
   const v = String(version || '').replace(/^v/, '');
   if (platform === 'win32') return [`WebVault-${v}-win32-x64.zip`, 'WebVault-win32-x64.zip'];
-  if (platform === 'darwin') return [`WebVault-${v}-macos-x64.zip`, 'pagevault-macos-x64.zip'];
+  if (platform === 'darwin') {
+    // macOS 从 v1.5.4 起按真实架构分开发包（arm64 / x64）。
+    // 之前的包名一律写 -macos-x64，但 M 系列机器上产出的其实是 arm64 —— 名字不可信，
+    // 所以这里按当前进程架构先挑对应的那个，再退回旧名字（旧名字仍是可用的 x64 包）。
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+    const names = [`WebVault-${v}-macos-${arch}.zip`];
+    if (arch !== 'x64') names.push(`WebVault-${v}-macos-x64.zip`);
+    names.push('pagevault-macos-x64.zip');
+    return names;
+  }
   return [`WebVault-${v}-linux-x64.tar.gz`, 'WebVault-linux-x64.tar.gz'];
 }
 
