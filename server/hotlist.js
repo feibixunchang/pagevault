@@ -133,6 +133,9 @@ class HotListEngine {
     const result = { sourceId, name: source.name, items: [], saved: [], skipped: [], errors: [], startedAt: started };
     try {
       const cfg = { cookie: o.cookie !== undefined ? o.cookie : this._cfgOf(sourceId).cookie };
+      // 本次拉取实际用的 Cookie：请求里带的优先，否则用配置里存的。
+      // ⚠️ 必须往下传给 _saveOne —— 抓原文也要它，知乎对未登录请求一律 403。
+      const useCookie = String((cfg.cookie || '')).trim();
       const items = await this.fetchList(source, cfg);
       result.items = items.slice(0, 50);
       const limit = Math.max(1, Math.min(20, Number(o.limit) || this._cfgOf(sourceId).limit || 5));
@@ -154,7 +157,7 @@ class HotListEngine {
         while (cursor < todo.length) {
           const item = todo[cursor++];
           try {
-            const saved = await this._saveOne(source, item);
+            const saved = await this._saveOne(source, item, useCookie);
             if (saved) result.saved.push(saved);
             else result.skipped.push({ title: item.title, url: item.url, why: '抓取失败' });
           } catch (e) {
@@ -187,13 +190,13 @@ class HotListEngine {
     return result;
   }
 
-  async _saveOne(source, item) {
+  async _saveOne(source, item, cookie) {
     const hooks = this.hooks;
     // 登录态来源（知乎）看正文也要 Cookie：榜单是带着 Cookie 拉成功的，
     // 抓原文却裸奔 → 每篇 403 挑战页 → "没有新文章"，用户一头雾水。
     // 只在原文和榜单同域时才带，避免 Cookie 跟着重定向泄漏给别的站。
     const headers = { Referer: safeOrigin(item.url) };
-    const ck = String((this._cfgOf(source.id) || {}).cookie || '').trim();
+    const ck = String(cookie || (this._cfgOf(source.id) || {}).cookie || '').trim();
     if (source.needsCookie && ck) {
       try {
         if (new URL(item.url).origin === new URL(source.url).origin) headers.Cookie = ck;

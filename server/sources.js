@@ -94,18 +94,25 @@ const SOURCES = [
     cookieHint: '浏览器登录知乎后按 F12 → Network → 任意请求 → Request Headers，把整行 cookie 复制过来（只要含 z_c0=… 那段就够）。Cookie 过期了这里也要重新填。',
     // 抽不到正文就不存：宁可少存一篇，也别存一堆空页面
     requireContent: true,
-    selectors: ['.Post-RichText', '.RichContent-inner', 'article'],
+    // 知乎问题页的正文容器：问题描述在 .QuestionRichText，
+    // 回答正文在 .RichText（class 里带 CopyrightRichText-…），
+    // 外层是 .RichContent-inner。注意 .Post-RichText 是旧版结构，留着兜底。
+    selectors: ['.RichText', '.RichContent-inner', '.QuestionRichText', '.Post-RichText', 'article'],
 
     parse(text) {
       const data = JSON.parse(text);
       const list = (data && data.data) || [];
       return list.map((it) => {
         const card = it.target || it.card || {};
-        const t = card.target_title_area || card.coffee_card || {};
+        // ⚠️ 知乎 2025 年前后把标题挪了位置：现在是 target.title_area.text，
+        // 老代码只认 target_title_area → 每条标题都空 → 整张列表被过滤光
+        // → 拉取结果显示"没有新文章"。两套字段都认，谁有算谁的。
+        const t = card.title_area || card.target_title_area || card.coffee_card || {};
         const excerpt = (card.excerpt_area && (card.excerpt_area.text || card.excerpt_area.long_text)) || '';
+        const link = (t.link && t.link.url) || (card.link && card.link.url) || '';
         return {
           title: stripTags(t.text || (it.detail_text || '')) || it.detail_text || '',
-          url: t.link && t.link.url ? t.link.url : (card.link && card.link.url) || '',
+          url: link,
           summary: stripTags(excerpt).slice(0, 300),
           hot: it.detail_text || ''
         };

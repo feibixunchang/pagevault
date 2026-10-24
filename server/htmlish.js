@@ -36,6 +36,33 @@ const NOISE_WORDS = [
   'modal', 'float-', 'sticky', 'qrcode', 'reward'
 ];
 
+/**
+ * 判断一个 class/id 是不是噪音。
+ *
+ * ⚠️ 必须按**词边界**匹配，不能用子串包含：
+ * 知乎答案正文的 class 是 "RichText ztext CopyrightRichText-richText"，
+ * 按子串匹配 "copyright" 会把**整段答案正文**当成版权声明删掉，
+ * 结果就是知乎每篇都"抽不到正文"（存下来是空页）。
+ * 词边界：token 恰好等于该词，或该词前后是 - / _ 分隔。
+ * "CopyrightRichText" 不匹配，"copyright" / "copyright-note" 匹配。
+ */
+function noiseHit(key) {
+  const tokens = String(key == null ? '' : key)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  for (const tok of tokens) {
+    for (const w of NOISE_WORDS) {
+      const wl = w.toLowerCase();
+      if (wl.charAt(0) === '-') { if (tok.endsWith(wl)) return true; continue; }
+      if (wl.charAt(wl.length - 1) === '-') { if (tok.startsWith(wl)) return true; continue; }
+      const esc = wl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp('(^|[-_])' + esc + '($|[-_])').test(tok)) return true;
+    }
+  }
+  return false;
+}
+
 /** 把 HTML 解析成粗糙的树 */
 function parse(html) {
   const root = { tag: '#root', attrs: {}, children: [], text: '' };
@@ -135,7 +162,7 @@ function isNoise(el) {
   if (DROP_TAGS.has(el.tag)) return true;
   const key = ((el.attrs.class || '') + ' ' + (el.attrs.id || '')).toLowerCase();
   if (!key.trim()) return false;
-  return NOISE_WORDS.some(w => key.includes(w));
+  return noiseHit(key);
 }
 
 /** 把噪音节点从树里摘掉 */
@@ -179,31 +206,34 @@ function linkDensity(el) {
   return linkTextOf(el).replace(/\s+/g, ' ').trim().length / t.length;
 }
 
-/** 简单选择器：tag / .class / #id / tag.class */
-function findBySelector(root, sel) {
+/** 简单选择器：tag / .class / #id / tag.class —— 返回**所有**匹配节点 */
+function findAllBySelector(root, sel) {
   sel = String(sel || '').trim();
-  if (!sel) return null;
+  if (!sel) return [];
   const m = sel.match(/^([a-zA-Z][\w-]*)?((?:[.#][\w-]+)*)$/);
-  if (!m) return null;
+  if (!m) return [];
   const tag = (m[1] || '').toLowerCase();
   const rest = m[2] || '';
   const classes = (rest.match(/\.([\w-]+)/g) || []).map(x => x.slice(1).toLowerCase());
   const ids = (rest.match(/#([\w-]+)/g) || []).map(x => x.slice(1).toLowerCase());
-  let found = null;
+  const out = [];
   const walk = (el) => {
-    if (found) return;
     if (el.tag !== '#text') {
       const cls = String((el.attrs && el.attrs.class) || '').toLowerCase();
       const id = String((el.attrs && el.attrs.id) || '').toLowerCase();
       const okTag = !tag || el.tag === tag;
       const okCls = classes.every(c => cls.split(/\s+/).includes(c));
       const okId = ids.every(i => id === i);
-      if (okTag && okCls && okId) { found = el; return; }
+      if (okTag && okCls && okId) out.push(el);
     }
-    for (const c of el.children) { walk(c); if (found) return; }
+    for (const c of el.children) walk(c);
   };
   walk(root);
-  return found;
+  return out;
+}
+
+function findBySelector(root, sel) {
+  return findAllBySelector(root, sel)[0] || null;
 }
 
 /** 往上找：最近的、内容感很强的祖先（找不到就返回 parent） */
@@ -251,10 +281,13 @@ function findContent(root, selectors) {
   // A) 站点指定的正文容器优先（最准）
   if (selectors && selectors.length) {
     for (const sel of selectors) {
-      const el = findBySelector(root, sel);
-      if (!el) continue;
-      const t = textOf(el).replace(/\s+/g, ' ').trim();
-      if (t.length >= 120) return { el, score: t.length, mode: 'selector:' + sel };
+      // ⚠️ 同一个选择器可能要试**多个**匹配节点：知乎页面上第一个
+      // .RichText 可能是很短的提问描述，真正有字的是下面那个回答。
+      // 只取第一个匹配 → 短的那个不合格就直接判"抽不到正文"。
+      for (const el of findAllBySelector(root, sel)) {
+        const t = textOf(el).replace(/\s+/g, ' ').trim();
+        if (t.length >= 120) return { el, score: t.length, mode: 'selector:' + sel };
+      }
     }
   }
 
