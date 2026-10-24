@@ -23,7 +23,11 @@ RUN apk add --no-cache tini su-exec
 WORKDIR /app
 
 # 只拷运行期需要的东西；server 源码全部用 Node 内置模块，无 node_modules
-COPY server/package.json server/server.js server/sync.js server/providers.js server/webdav.js server/zip.js server/dnsx.js server/extws.js server/hotlist.js server/sources.js server/htmlish.js server/titles.js ./
+#
+# ⚠️ 这里以前是手写文件清单，加新模块（urlkey.js）时忘了同步 → 容器 MODULE_NOT_FOUND 崩溃循环。
+# 现在用通配 `server/*.js` 自动带上全部模块，以后加文件不会再漏。
+COPY server/*.js ./
+COPY server/package.json ./
 COPY server/public ./public
 COPY extension ./extension
 # 运维脚本：容器里可以直接 `docker exec pagevault node /app/scripts/fix-titles.js /data --write`

@@ -19,9 +19,19 @@ mkdir -p "$PKG/server" "$PKG/extension" "$PKG/scripts"
 # compose（NAS 上通常要改 volumes 的绝对路径与 PUID/PGID）
 cp docker-compose.yml "$PKG/"
 # 服务端源码：只带运行期需要的（零依赖，不需要 node_modules / data）
-cp server/package.json server/server.js server/sync.js server/providers.js server/webdav.js server/zip.js \
-   server/dnsx.js server/extws.js server/hotlist.js server/sources.js server/htmlish.js server/titles.js \
-   server/Dockerfile server/docker-entrypoint.sh "$PKG/server/"
+#
+# ⚠️ 这里以前是手写文件清单（server/server.js server/sync.js …），漏一个文件容器就起不来：
+#   2026-10-25 加 urlkey.js 时忘了加进清单，NAS 上直接 MODULE_NOT_FOUND 崩溃重启循环。
+# 现在改成自动带上 server/ 下所有 .js —— 以后新增模块不会再漏。
+# 排除测试/临时脚本（以 _ 开头）和日志。
+for f in server/*.js; do
+  base=$(basename "$f")
+  case "$base" in
+    _*) continue ;;
+  esac
+  cp "$f" "$PKG/server/"
+done
+cp server/package.json server/Dockerfile server/docker-entrypoint.sh "$PKG/server/"
 # 运维脚本（补历史标题等），容器内也能跑
 cp scripts/fix-titles.js "$PKG/scripts/"
 rsync -a --exclude '*.log' server/public "$PKG/server/"
