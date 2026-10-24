@@ -69,6 +69,8 @@
     <string name="cookie_cleared">Cookie 已清除</string>
     <string name="cookie_fail">Cookie 保存失败：%1$s</string>
     <string name="star_fail">收藏操作失败</string>
+    <string name="save_fail">保存失败：%1$s</string>
+    <string name="saved_ok">已保存</string>
     <string name="share_saving">正在保存分享的链接…</string>
     <string name="share_no_url">分享的内容里没找到网址</string>
     <string name="empty">还没有收藏\n在电脑上用扩展一键保存，或点右上角 ＋ 粘贴链接</string>

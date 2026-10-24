@@ -293,11 +293,12 @@ final class Store: ObservableObject {
         }
     }
 
-    /// 改某个来源的配置（目前手机端只改 Cookie）
-    func saveHotSourceConfig(_ id: String, cookie: String) async -> Bool {
+    /// 改某个来源的配置（Cookie / 开关 / 每次条数）
+    func saveHotSourceConfig(_ id: String, cookie: String? = nil,
+                             enabled: Bool? = nil, limit: Int? = nil) async -> Bool {
         guard let api = api else { return false }
         do {
-            _ = try await api.saveHotSourceConfig(id: id, cookie: cookie)
+            _ = try await api.saveHotSourceConfig(id: id, cookie: cookie, enabled: enabled, limit: limit)
             return true
         } catch {
             return false

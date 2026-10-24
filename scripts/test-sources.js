@@ -2,8 +2,8 @@
 // 单独验证：拉榜 → 解析 → 抓正文 → 抽正文
 const http = require('http');
 const https = require('https');
-const { SOURCES, UA_DESKTOP } = require('./sources.js');
-const { extractArticle, stripNoiseOnly } = require('./htmlish.js');
+const { SOURCES, UA_DESKTOP } = require('../server/sources.js');
+const { extractArticle, stripNoiseOnly } = require('../server/htmlish.js');
 
 function fetchRaw(url, headers) {
   return new Promise((resolve, reject) => {
@@ -43,7 +43,7 @@ const ctx = {
     try {
       const r = await fetchRaw(s.url, s.headers);
       // parseList 现在一定是 Promise（有的来源要异步展开每一条）
-      const items = await require('./sources.js').parseList(s, r.text, ctx);
+      const items = await require('../server/sources.js').parseList(s, r.text, ctx);
       console.log(`  榜单条目: ${items.length}`);
       for (const it of items.slice(0, 3)) {
         console.log(`   · ${it.title.slice(0, 42)}  ${it.url.slice(0, 68)}`);

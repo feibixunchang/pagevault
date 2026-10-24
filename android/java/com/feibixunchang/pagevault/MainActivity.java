@@ -41,6 +41,12 @@ public class MainActivity extends Activity {
     private String keyword = "";
     private boolean onlyStarred = false;
     private SimpleDateFormat df;
+    /** 搜索防抖：以前每敲一个字就整表重建，库大了输入会卡 */
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable searchJob;
+
+    /** 一次最多画多少条。几千条一次性 inflate 会明显卡顿甚至 OOM */
+    private static final int MAX_RENDER = 300;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,10 +78,21 @@ public class MainActivity extends Activity {
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
             @Override
             public void afterTextChanged(Editable s) {
-                keyword = s.toString().trim();
-                render();
+                final String kw = s.toString().trim();
+                if (searchJob != null) ui.removeCallbacks(searchJob);
+                searchJob = () -> {
+                    keyword = kw;
+                    render();
+                };
+                ui.postDelayed(searchJob, 220);
             }
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (searchJob != null) ui.removeCallbacks(searchJob);
+        super.onDestroy();
     }
 
     @Override
@@ -134,10 +151,21 @@ public class MainActivity extends Activity {
 
         listBox.removeAllViews();
         LayoutInflater inf = LayoutInflater.from(this);
-        for (JSONObject o : shown) {
+        int n = Math.min(shown.size(), MAX_RENDER);
+        for (int i = 0; i < n; i++) {
             View v = inf.inflate(R.layout.item_page, listBox, false);
-            bindItem(v, o);
+            bindItem(v, shown.get(i));
             listBox.addView(v);
+        }
+        // 画不下的条数明确说出来，别让人以为收藏丢了
+        if (shown.size() > n) {
+            TextView more = new TextView(this);
+            more.setText("还有 " + (shown.size() - n) + " 条未显示，用搜索缩小范围");
+            more.setTextSize(12);
+            more.setAlpha(0.6f);
+            int pad = Math.round(14 * getResources().getDisplayMetrics().density);
+            more.setPadding(pad, pad, pad, pad);
+            listBox.addView(more);
         }
         boolean empty = shown.isEmpty();
         emptyView.setVisibility(empty ? View.VISIBLE : View.GONE);

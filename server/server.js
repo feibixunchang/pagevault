@@ -12,10 +12,10 @@ const path = require('path');
 const crypto = require('crypto');
 const { SyncEngine, extractMeta, ONLINE_WINDOW_MS } = require('./sync');
 const { createProvider } = require('./providers');
-const { zipStore, zipRead } = require('./zip');
+const { zipStore, zipStoreStream, zipRead } = require('./zip');
 const { attachWebSocket } = require('./extws');
 
-const VERSION = '1.5.2';
+const VERSION = '1.5.3';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
@@ -788,14 +788,19 @@ const server = http.createServer((req, res) => {
         const merged = {};
         for (const s of HOT_SOURCES) {
           const c = hs[s.id] || {};
+          const cur0 = cur.sources[s.id];
           merged[s.id] = {
-            enabled: typeof c.enabled === 'boolean' ? c.enabled : cur.sources[s.id].enabled,
-            limit: Math.max(1, Math.min(20, Number(c.limit) || cur.sources[s.id].limit)),
-            intervalSec: Math.max(0, Math.min(86400 * 7, Number(c.intervalSec) || 0)),
+            enabled: typeof c.enabled === 'boolean' ? c.enabled : cur0.enabled,
+            // 同理：patch 里没带的字段保持原值。以前这里 `Number(undefined) || 0`
+            // 会把「新加的来源」或「前端没回传的字段」直接清零 —— limit 变 0 篇、
+            // 自动拉取被关掉，都是这么来的。
+            limit: c.limit == null ? cur0.limit : Math.max(1, Math.min(20, Number(c.limit) || cur0.limit)),
+            intervalSec: c.intervalSec == null ? cur0.intervalSec
+              : Math.max(0, Math.min(86400 * 7, Number(c.intervalSec) || 0)),
             // ⚠️ Cookie 只认 PUT /api/sources/:id 写进来的值。
             // 前端 /api/prefs 里带的是**页面加载时的旧快照**，要是照单全收，
             // 用户刚存好的 Cookie 会被下一次「保存偏好」覆盖成空 —— 踩过一次。
-            cookie: cur.sources[s.id].cookie
+            cookie: cur0.cookie
           };
         }
         clean.hotlist = { sources: merged };
@@ -1062,22 +1067,39 @@ const server = http.createServer((req, res) => {
   }
 
   // 整库导出：store 模式 zip（index.json + pages/*.html），自包含、可再次导入
+  //
+  // 走流式：以前是在内存里拼完整份 zip 再发，库上到 GB 级直接把进程撑死
+  // （Node 单个 Buffer 上限 2GB，还没到上限就先 OOM 了）。
   if (req.method === 'GET' && p === '/api/export.zip') {
     const list = loadIndex();
-    const files = [{ name: 'index.json', data: Buffer.from(JSON.stringify(list, null, 2), 'utf8') }];
+    const entries = [{ name: 'index.json', data: Buffer.from(JSON.stringify(list, null, 2), 'utf8') }];
+    let skipped = 0;
     for (const meta of list) {
-      let html;
-      try { html = fs.readFileSync(path.join(DATA_DIR, meta.file || (meta.id + '.html')), 'utf8'); } catch { continue; }
-      files.push({ name: 'pages/' + meta.id + '.html', data: Buffer.from(html, 'utf8') });
+      const fp = path.join(DATA_DIR, meta.file || (meta.id + '.html'));
+      let st;
+      try { st = fs.statSync(fp); } catch { skipped++; continue; }   // 索引里有、盘上没了
+      if (!st.isFile()) { skipped++; continue; }
+      entries.push({ name: 'pages/' + meta.id + '.html', path: fp });
     }
-    const zip = zipStore(files);
     const d = new Date();
     const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
-    send(res, 200, zip, {
+    res.writeHead(200, {
       'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent('网页收藏备份-' + stamp + '.zip')}`
+      // 不设 Content-Length（边算边发），用 chunked：浏览器照样能存下来
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent('网页收藏备份-' + stamp + '.zip')}`,
+      'Cache-Control': 'no-store'
     });
-    log('exported backup zip, pages =', files.length - 1);
+    zipStoreStream(res, entries)
+      .then(bytes => {
+        res.end();   // 流式写完后必须收尾，否则客户端会一直等（chunked 没有结束标记）
+        log('exported backup zip, pages =', entries.length - 1,
+          skipped ? ('(skipped ' + skipped + ' missing)') : '', bytes + ' bytes');
+      })
+      .catch(e => {
+        // 已经开始发了，改不了状态码，只能掐掉连接让客户端知道备份不完整
+        log('export zip FAILED:', e && e.message ? e.message : e);
+        res.destroy();
+      });
     return;
   }
 

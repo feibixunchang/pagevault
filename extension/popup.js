@@ -141,7 +141,9 @@ async function doCapture(statusEl) {
   };
   try {
     await postWithRetry(server + '/api/pages', payload, statusEl);
-    statusEl.textContent = m.saved;
+    // 有图没内联成功时说一声，否则用户断网打开看到裂图会以为是保存坏了
+    statusEl.textContent = m.saved + (captured.inlineMissed > 0
+      ? '（' + captured.inlineMissed + ' 张图没抓到，断网时可能裂图）' : '');
   } catch (e) {
     const msg = (e && e.message) || String(e);
     statusEl.textContent = /failed to fetch|networkerror|load failed|ECONNREFUSED|aborted/i.test(msg)
@@ -190,24 +192,28 @@ async function captureWithSingleFile(tabId, statusEl) {
   if (remoteUrls.length) {
     statusEl.textContent = m.inlining(remoteUrls.length);
     try {
-      const { map } = await chrome.runtime.sendMessage({
+      const res = await chrome.runtime.sendMessage({
         type: 'inline-images',
         urls: remoteUrls,
         referer: data.url
       });
-      if (map && Object.keys(map).length) {
+      const map = (res && res.map) || {};
+      if (Object.keys(map).length) {
         let html = data.html;
         for (const [u, d] of Object.entries(map)) {
           if (html.includes(u)) html = html.split(u).join(d);
         }
         data.html = html;
       }
+      // 记下没抓到的张数：保存完要如实告诉用户「断网时这几张会裂」
+      data.inlineMissed = remoteUrls.length - Object.keys(map).length;
     } catch { /* 后台不可用不阻塞保存 */ }
   }
   return data;
 }
 
 // 从 HTML 里提取所有远程图片地址（img src 与 CSS url()），去重、限数量
+// 上限跟 background.js 的 MAX_IMAGES 对齐
 function extractRemoteUrls(html) {
   const found = new Set();
   const patterns = [
@@ -218,7 +224,7 @@ function extractRemoteUrls(html) {
     let m;
     while ((m = re.exec(html))) {
       if (!/\.(svg|css|js)(\?|#|$)/i.test(m[1])) found.add(m[1]);
-      if (found.size >= 80) break;
+      if (found.size >= 150) break;
     }
   }
   return [...found];

@@ -136,26 +136,45 @@ function blobToDataURL(blob) {
   });
 }
 
+// 图片内联的预算。以前是「最多 80 张、一张一张串行抓」，长文（动辄一两百张图）
+// 超出的部分就留着远程地址 —— 断网打开就是一片裂图。现在放宽到 150 张、6 路并发，
+// 并且按总字节数兜底，避免把内存吃满。
+const MAX_IMAGES = 150;
+const MAX_TOTAL_BYTES = 40 * 1024 * 1024;
+const MAX_ONE_BYTES = 3 * 1024 * 1024;
+const CONCURRENCY = 6;
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.type !== 'inline-images') return undefined;
   (async () => {
     const map = {};
-    const urls = (msg.urls || []).slice(0, 80); // 单次上限，防止超大页卡死
-    for (const u of urls) {
-      try {
-        const resp = await fetch(u, {
-          referrer: msg.referer || undefined, // 带来源页地址，过防盗链
-          credentials: 'include',             // 带 cookie，抓登录态图片
-          redirect: 'follow'
-        });
-        if (!resp.ok) continue;
-        const blob = await resp.blob();
-        if (!blob.type.startsWith('image/')) continue;
-        if (blob.size > 4 * 1024 * 1024) continue; // 单张超 4MB 跳过
-        map[u] = await blobToDataURL(blob);
-      } catch { /* 单张失败不影响其他 */ }
-    }
-    sendResponse({ map });
+    const urls = (msg.urls || []).slice(0, MAX_IMAGES);
+    let bytes = 0;
+    let next = 0;
+
+    // 单个失败不影响其他；一旦触到字节预算，剩下的直接放弃（保留远程地址）
+    const worker = async () => {
+      while (next < urls.length) {
+        if (bytes >= MAX_TOTAL_BYTES) return;
+        const u = urls[next++];
+        try {
+          const resp = await fetch(u, {
+            referrer: msg.referer || undefined, // 带来源页地址，过防盗链
+            credentials: 'include',             // 带 cookie，抓登录态图片
+            redirect: 'follow'
+          });
+          if (!resp.ok) continue;
+          const blob = await resp.blob();
+          if (!blob.type.startsWith('image/')) continue;
+          if (blob.size > MAX_ONE_BYTES) continue;
+          if (bytes + blob.size > MAX_TOTAL_BYTES) return;
+          map[u] = await blobToDataURL(blob);
+          bytes += blob.size;
+        } catch { /* 单张失败跳过 */ }
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    sendResponse({ map, asked: urls.length, bytes });
   })();
   return true; // 异步 sendResponse
 });

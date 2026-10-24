@@ -182,14 +182,21 @@ final class APIClient {
             ?? HotPullAllResult(ok: false, results: [], error: "返回数据看不懂")
     }
 
-    func saveHotSourceConfig(id: String, cookie: String) async throws -> Data {
+    /// 只提交有值的字段：服务端对缺省字段保持原值，
+    /// 所以「切开关」不会顺手把 Cookie 或自动拉取间隔清掉。
+    func saveHotSourceConfig(id: String, cookie: String? = nil,
+                             enabled: Bool? = nil, limit: Int? = nil) async throws -> Data {
         guard let url = URL(string: "/api/sources/\(id)", relativeTo: base) else {
             throw APIError(message: "服务端地址无效")
         }
         var req = URLRequest(url: url)
         req.httpMethod = "PUT"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["cookie": cookie])
+        var body: [String: Any] = [:]
+        if let c = cookie { body["cookie"] = c }
+        if let e = enabled { body["enabled"] = e }
+        if let l = limit { body["limit"] = max(1, min(20, l)) }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
         return try await send(req)
     }
 }

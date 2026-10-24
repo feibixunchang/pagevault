@@ -72,7 +72,10 @@ public class HotListActivity extends Activity {
 
                 emoji.setText(s.optString("emoji", "📰"));
                 name.setText(s.optString("name", ""));
-                StringBuilder sb = new StringBuilder(s.optString("desc", ""));
+                boolean on = s.optBoolean("enabled", true);
+                StringBuilder sb = new StringBuilder();
+                if (!on) sb.append("已停用 · ");
+                sb.append(s.optString("desc", ""));
                 boolean needsCookie = s.optBoolean("needsCookie", false);
                 boolean hasCookie = s.optBoolean("hasCookie", false);
                 if (needsCookie) {
@@ -85,22 +88,88 @@ public class HotListActivity extends Activity {
                 }
                 desc.setText(sb.toString());
 
+                // 停用的来源不参与「全部拉取」和定时任务，按钮也一并禁掉，
+                // 免得点下去报个看不懂的错
+                pull.setEnabled(on);
+                pull.setAlpha(on ? 1f : 0.4f);
                 pull.setOnClickListener(x -> pull(s));
                 return v;
             }
         });
 
-        // 长按 = 配置登录态（目前只有知乎需要）。做成弹窗而不是在行里塞输入框：
-        // 列表项是 ListView 复用的，塞个 EditText 会跟着滚动串内容。
+        // 长按 = 这个来源的设置：启用/停用、每次几篇、填 Cookie。
+        // 做成弹窗而不是在行里塞输入框：列表项是 ListView 复用的，塞 EditText 会跟着滚动串内容。
         list.setOnItemLongClickListener((parent, view, position, id) -> {
             if (position >= sources.size()) return false;
-            JSONObject s = sources.get(position);
-            if (!s.optBoolean("needsCookie", false)) return false;
-            showCookieDialog(s);
+            showSourceMenu(sources.get(position));
             return true;
         });
 
         load(false);
+    }
+
+    /** 长按出来的菜单：以前只有「有 Cookie 的来源」能长按，别的来源在手机端完全没法配置 */
+    private void showSourceMenu(final JSONObject s) {
+        final boolean on = s.optBoolean("enabled", true);
+        final boolean needsCookie = s.optBoolean("needsCookie", false);
+        final List<String> items = new ArrayList<>();
+        items.add(on ? "停用这个来源" : "启用这个来源");
+        items.add("每次拉多少篇（当前 " + s.optInt("limit", 5) + " 篇）");
+        if (needsCookie) items.add(s.optBoolean("hasCookie", false) ? "更换 Cookie" : "填写 Cookie");
+
+        new AlertDialog.Builder(this)
+                .setTitle(s.optString("name", ""))
+                .setItems(items.toArray(new String[0]), (d, which) -> {
+                    if (which == 0) putSource(s, "enabled", !on);
+                    else if (which == 1) showLimitDialog(s);
+                    else showCookieDialog(s);
+                })
+                .setNegativeButton(R.string.add_cancel, null)
+                .show();
+    }
+
+    private void showLimitDialog(final JSONObject s) {
+        final int[] opts = {3, 5, 8, 10, 15};
+        int cur = s.optInt("limit", 5);
+        int idx = 1;
+        for (int i = 0; i < opts.length; i++) if (opts[i] == cur) idx = i;
+        String[] labels = new String[opts.length];
+        for (int i = 0; i < opts.length; i++) labels[i] = opts[i] + " 篇";
+        new AlertDialog.Builder(this)
+                .setTitle(s.optString("name", "") + " · 每次拉几篇")
+                .setSingleChoiceItems(labels, idx, (d, which) -> {
+                    putSource(s, "limit", opts[which]);
+                    d.dismiss();
+                })
+                .setNegativeButton(R.string.add_cancel, null)
+                .show();
+    }
+
+    /**
+     * 只提交要改的那个字段。
+     * 服务端对缺省字段保持原值，所以改开关不会顺手把 Cookie / 自动拉取间隔清掉。
+     */
+    private void putSource(final JSONObject s, String key, Object value) {
+        final String id = s.optString("id");
+        final String name = s.optString("name", "");
+        String payload;
+        try {
+            payload = new JSONObject().put(key, value).toString();
+        } catch (Exception e) {
+            return;
+        }
+        Api.async("PUT", "/api/sources/" + id, payload, r -> {
+            if (!r.ok()) {
+                String why = r.error != null ? r.error : ("HTTP " + r.code);
+                Toast.makeText(this, getString(R.string.save_fail, why), Toast.LENGTH_LONG).show();
+                return;
+            }
+            String okText;
+            if ("enabled".equals(key)) okText = name + (Boolean.TRUE.equals(value) ? "：已启用" : "：已停用");
+            else okText = getString(R.string.saved_ok);
+            Toast.makeText(this, okText, Toast.LENGTH_SHORT).show();
+            load(true);
+        });
     }
 
     private void load(boolean keepStatus) {

@@ -258,6 +258,16 @@
   .hotRow button.pull { border:1px solid var(--accent); color:var(--accent); background:var(--accent-bg);
     border-radius:7px; padding:4px 9px; font-size:12px; cursor:pointer; white-space:nowrap; }
   .hotRow button.pull:disabled { opacity:.5; cursor:default; }
+  /* 启用开关：停用的来源不参与「全部拉取」和定时任务，但仍保留配置 */
+  .hotRow.off { opacity:.5; }
+  .hotRow .sw { position:relative; flex:none; width:30px; height:17px; cursor:pointer; }
+  .hotRow .sw input { position:absolute; inset:0; width:100%; height:100%; opacity:0; margin:0; cursor:pointer; }
+  .hotRow .sw i { position:absolute; inset:0; border-radius:9px; background:var(--border); transition:background .15s; }
+  .hotRow .sw i::after { content:''; position:absolute; top:2px; left:2px; width:13px; height:13px;
+    border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.25); transition:transform .15s; }
+  .hotRow .sw input:checked + i { background:var(--accent); }
+  .hotRow .sw input:checked + i::after { transform:translateX(13px); }
+  .hotRow .sw input:focus-visible + i { outline:2px solid var(--accent); outline-offset:2px; }
   .hotTop { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
   .hotTop button { flex:1; border:1px solid var(--accent); color:var(--accent); background:var(--accent-bg);
     border-radius:8px; padding:7px 10px; font-size:13px; cursor:pointer; }
@@ -1866,6 +1876,9 @@
   const hotList = document.getElementById('hotList');
   const hotLog = document.getElementById('hotLog');
   let hotSources = [];
+  // Cookie 草稿：列表每次重绘（改篇数、切开关、拉取完成）都会重建输入框，
+  // 不单独留一份的话，用户粘好一半的 Cookie 会被无声清空。
+  const cookieDrafts = {};
 
   function fitHotPanel() {
     const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-zoom')) || 1;
@@ -1901,8 +1914,28 @@
   function renderSources() {
     hotList.innerHTML = '';
     for (const s of hotSources) {
+      const on = s.enabled !== false;
       const row = document.createElement('div');
-      row.className = 'hotRow';
+      row.className = 'hotRow' + (on ? '' : ' off');
+
+      // 启用开关：放最左，一眼能看出这个来源是否参与「全部拉取」和定时任务
+      const sw = document.createElement('label');
+      sw.className = 'sw';
+      sw.title = on ? '已启用（点一下停用）' : '已停用（点一下启用）';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = on;
+      cb.setAttribute('aria-label', s.name + ' 启用');
+      const knob = document.createElement('i');
+      sw.appendChild(cb);
+      sw.appendChild(knob);
+      cb.addEventListener('change', async () => {
+        const want = cb.checked;
+        const ok = await updateSource(s.id, { enabled: want });
+        if (ok) toast(s.name + (want ? '：已启用' : '：已停用'), want ? 'ok' : '');
+        else cb.checked = !want;   // 保存失败就把开关拨回去，别让人以为改了
+      });
+      row.appendChild(sw);
 
       const emo = document.createElement('span');
       emo.className = 'emo';
@@ -1916,6 +1949,7 @@
       nm.appendChild(b);
       const sub = document.createElement('span');
       let subText = s.desc || '';
+      if (!on) subText = '已停用 · ' + subText;
       if (s.needsCookie) subText += (s.hasCookie ? ' · 已配 Cookie' : ' · 需要 Cookie');
       if (s.lastResult) {
         subText += ' · 上次 ' + new Date(s.lastResult.at).toLocaleString() +
@@ -1945,7 +1979,8 @@
       const btn = document.createElement('button');
       btn.className = 'pull';
       btn.textContent = s.running ? '拉取中' : '拉取';
-      btn.disabled = !!s.running;
+      btn.disabled = !!s.running || !on;
+      if (!on) btn.title = '这个来源已停用，先打开左边的开关';
       btn.addEventListener('click', () => pullSource(s.id, btn));
       row.appendChild(btn);
 
@@ -1964,7 +1999,9 @@
         // 所以输入框永远是空的：已配置的显示成占位提示，用户想换就整行重贴。
         ta.placeholder = s.hasCookie ? '已配置 Cookie（留空表示不改动；要换就整行重贴）' : 'cookie: z_c0=…';
         const hp = prefs.hotlist && prefs.hotlist.sources && prefs.hotlist.sources[s.id];
-        ta.value = (hp && hp.cookie) || '';
+        // 优先用草稿：重绘不能把用户还没保存的输入冲掉
+        ta.value = cookieDrafts[s.id] != null ? cookieDrafts[s.id] : ((hp && hp.cookie) || '');
+        ta.addEventListener('input', () => { cookieDrafts[s.id] = ta.value; });
         box.appendChild(ta);
         const row2 = document.createElement('div');
         row2.className = 'row';
@@ -1973,6 +2010,8 @@
         save.addEventListener('click', async () => {
           const v = ta.value.trim();
           if (!v) { toast('Cookie 是空的，没保存', 'err'); return; }
+          // 先清草稿：updateSource 内部会重绘列表，重绘时会读草稿把输入框填回去
+          delete cookieDrafts[s.id];
           const ok = await updateSource(s.id, { cookie: v });
           if (ok) {
             toast(s.name + ' 的 Cookie 已保存', 'ok');
@@ -1982,12 +2021,15 @@
             if (!prefs.hotlist.sources) prefs.hotlist.sources = {};
             if (!prefs.hotlist.sources[s.id]) prefs.hotlist.sources[s.id] = {};
             prefs.hotlist.sources[s.id].cookie = v;
+          } else {
+            cookieDrafts[s.id] = v;   // 没存上就把内容还回去，别让人重打一遍
           }
         });
         const clr = document.createElement('button');
         clr.textContent = '清除';
         clr.addEventListener('click', async () => {
           ta.value = '';
+          delete cookieDrafts[s.id];
           const ok = await updateSource(s.id, { cookie: '' });
           if (ok) {
             toast(s.name + ' 的 Cookie 已清除', 'ok');
@@ -2084,6 +2126,10 @@
 
   document.getElementById('hotPullAll').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
+    if (!hotSources.some(s => s.enabled !== false)) {
+      toast('所有来源都停用了，先在列表里打开一个', 'err');
+      return;
+    }
     btn.disabled = true;
     hotLog.textContent = '正在依次拉取所有启用的来源…';
     try {

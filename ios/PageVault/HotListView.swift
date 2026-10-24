@@ -54,7 +54,7 @@ struct HotListView: View {
                                 Text(s.name).pvFont(.body, weight: .semibold)
                                 Text(subtitle(s))
                                     .pvFont(.caption)
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(s.isOn ? .secondary : .orange)
                             }
                             Spacer()
                             Button {
@@ -63,6 +63,27 @@ struct HotListView: View {
                                 if busy.contains(s.id) { ProgressView() } else { Text("拉取") }
                             }
                             .buttonStyle(.borderedProminent)
+                            .disabled(!busy.isEmpty || !s.isOn)
+                        }
+
+                        // 停用的来源不参与「全部拉取」和定时任务，但配置留着
+                        HStack {
+                            Toggle("启用", isOn: Binding(
+                                get: { s.isOn },
+                                set: { v in setEnabled(s, v) }
+                            ))
+                            .pvFont(.caption)
+                            .disabled(!busy.isEmpty)
+                            Spacer()
+                            Menu {
+                                ForEach([3, 5, 8, 10, 15], id: \.self) { n in
+                                    Button("\(n) 篇") { setLimit(s, n) }
+                                }
+                            } label: {
+                                Text("每次 \(s.limit) 篇")
+                                    .pvFont(.caption)
+                                    .foregroundColor(.accentColor)
+                            }
                             .disabled(!busy.isEmpty)
                         }
 
@@ -108,12 +129,33 @@ struct HotListView: View {
     }
 
     private func subtitle(_ s: HotSource) -> String {
-        var parts = [s.desc]
+        var parts: [String] = []
+        if !s.isOn { parts.append("已停用") }
+        parts.append(s.desc)
         if s.needsCookie { parts.append(s.hasCookie ? "已配 Cookie" : "需要 Cookie") }
         if let r = s.lastResult {
             parts.append("上次 \(r.saved) 篇")
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// 切启用开关：先本地生效（开关跟手），存不上再拨回去并说清楚
+    private func setEnabled(_ s: HotSource, _ v: Bool) {
+        if let i = sources.firstIndex(where: { $0.id == s.id }) {
+            sources[i].enabled = v
+        }
+        Task {
+            let ok = await store.saveHotSourceConfig(s.id, enabled: v)
+            if !ok {
+                if let i = sources.firstIndex(where: { $0.id == s.id }) {
+                    sources[i].enabled = !v
+                }
+                say("\(s.name) 的开关没保存上：连不上服务端", isError: true)
+            } else {
+                say("\(s.name)：" + (v ? "已启用" : "已停用（不会被「全部拉取」带上）"))
+            }
+            await load()
+        }
     }
 
     private func load() async {
@@ -145,6 +187,10 @@ struct HotListView: View {
     }
 
     private func pullAll() {
+        if sources.allSatisfy({ !$0.isOn }) {
+            say("所有来源都停用了，先在上面的列表里打开一个", isError: true)
+            return
+        }
         busy.insert("__all__")
         message = "正在依次拉取所有来源…"
         Task {
@@ -162,8 +208,23 @@ struct HotListView: View {
         }
     }
 
-    private func saveCookie(_ s: HotSource) {
-        let c = (cookieDraft[s.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    /// 改「每次拉几篇」
+    private func setLimit(_ s: HotSource, _ n: Int) {
+        if let i = sources.firstIndex(where: { $0.id == s.id }) {
+            sources[i].limit = n
+        }
+        Task {
+            let ok = await store.saveHotSourceConfig(s.id, limit: n)
+            if ok {
+                say("\(s.name)：每次拉 \(n) 篇")
+            } else {
+                say("\(s.name) 的条数没保存上：连不上服务端", isError: true)
+            }
+            await load()
+        }
+    }
+
+    private func saveCookie(_ s: HotSource) {        let c = (cookieDraft[s.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if c.isEmpty {
             say("Cookie 是空的，没保存", isError: true)
             return
@@ -190,9 +251,13 @@ struct HotSource: Identifiable, Decodable {
     let needsCookie: Bool
     let cookieHint: String
     let hasCookie: Bool
-    let limit: Int
+    var limit: Int
     let intervalSec: Int
+    /// 缺失时按「启用」处理：老服务端不返回这个字段
+    var enabled: Bool?
     let lastResult: HotLastResult?
+
+    var isOn: Bool { enabled != false }
 
     struct HotLastResult: Decodable {
         let ok: Bool?
