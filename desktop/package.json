@@ -1,7 +1,7 @@
 {
   "name": "pagevault-desktop",
   "productName": "网页收藏",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "private": true,
   "description": "PageVault desktop (macOS/Windows/Linux) — wraps the sync server + reader in a real app window.",
   "main": "main.js",

@@ -16,7 +16,7 @@ const { zipStore, zipStoreStream, zipRead } = require('./zip');
 const { attachWebSocket } = require('./extws');
 const { pageTitle, usableTitle, looksLikeGatePage } = require('./titles');
 
-const VERSION = '1.5.4';
+const VERSION = '1.5.5';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
@@ -1424,8 +1424,41 @@ const extWs = attachWebSocket(server, {
   }
 });
 
+// ---------- 启动时修复「标题是个网址」的历史条目 ----------
+// 1.5.3 及更早抓微信文章拿不到标题，只能把网址当标题存。用户升级/重装后
+// 数据目录还在，老条目依旧挂着一长串网址，看起来像"修复没生效"。
+// 每次启动做一遍保守修复：只有现有标题明显是垃圾（usableTitle 不过关），
+// 且能从存档 HTML 里挖出更好的，才改写 index.json；存档文件本身不动。
+function repairTitles() {
+  let list;
+  try { list = loadIndex(); } catch { return; }
+  if (!Array.isArray(list)) return;
+  let fixed = 0, noFile = 0;
+  for (const m of list) {
+    if (!m || !m.id) continue;
+    const cur = String(m.title || '').trim();
+    if (usableTitle(cur, m.url) && cur !== 'Untitled') continue;
+    let html = null;
+    try { html = fs.readFileSync(path.join(DATA_DIR, m.file || (m.id + '.html')), 'utf8'); }
+    catch { noFile++; continue; }
+    const mined = pageTitle(html, m.url);
+    if (mined && mined !== cur) { m.title = mined.slice(0, 300); fixed++; }
+  }
+  if (!fixed) return;
+  try {
+    const tmp = INDEX_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(list, null, 2), 'utf8');
+    fs.renameSync(tmp, INDEX_FILE);
+    log(`标题修复：${fixed} 条"网址标题"已从存档补回` +
+        (noFile ? `（另有 ${noFile} 条存档文件缺失，修不了）` : ''));
+  } catch (e) {
+    log('标题修复写入失败：', (e && e.message) || e);
+  }
+}
+
 server.listen(PORT, () => {
   console.log(`网页收藏 sync server running at http://localhost:${PORT}`);
+  repairTitles();       // 补回历史条目的真标题（幂等，没得修就静默）
   ensureSyncServer();   // 确保本机作为同步源的令牌已生成
   restartSyncTimer();   // 按保存的同步配置恢复轮询
   restartHotlistTimer(); // 按保存的热榜配置恢复定时拉取

@@ -301,6 +301,7 @@
     <button id="onlyStarred" title="只看收藏的页面">☆ 收藏</button>
     <input id="search" placeholder="搜索标题或链接…" />
     <button id="addBtn" title="粘贴链接保存">＋</button>
+    <button id="openWeb" style="display:none" title="在系统默认浏览器里打开网页版">🌐 网页版</button>
     <button id="updateEntry" class="upd-entry" style="display:none" title=""></button>
     <button id="fullsearch" title="同时搜索页面正文内容">全文</button>
     <button id="refresh" title="重新加载列表">↻ 刷新</button>
@@ -1359,6 +1360,16 @@
   // 抛 SyntaxError: Identifier 'pv' has already been declared，整页脚本全挂
   // （Chrome 里没有这个全局变量，所以只有桌面端会炸）。
   const pvApi = window.pv || null;
+  // 「打开网页版」：只有桌面端有 window.pv（走 IPC 让系统浏览器打开本机地址）。
+  // 浏览器里本来就开着网页版，这个按钮藏掉。
+  const openWebBtn = document.getElementById('openWeb');
+  if (pvApi) {
+    openWebBtn.style.display = '';
+    openWebBtn.addEventListener('click', () => {
+      pvApi.invoke('web:open', location.origin)
+        .catch(e => toast('打开失败：' + errText(e), 'err'));
+    });
+  }
   const updateModal = document.getElementById('updateModal');
   const updateVerLine = document.getElementById('updateVerLine');
   const updateChannels = document.getElementById('updateChannels');
@@ -2109,13 +2120,41 @@
         hotLog.textContent = '拉取失败\n' + why;
         toast('拉取失败：' + why.split('\n')[0], 'err');
       } else {
-        const parts = ['存入 <b>' + (d.saved || []).length + '</b> 篇'];
-        if ((d.skipped || []).length) parts.push('跳过 ' + d.skipped.length + ' 篇');
-        if ((d.errors || []).length) parts.push('失败 ' + d.errors.length + ' 篇');
+        const savedN = (d.saved || []).length;
+        const skipN = (d.skipped || []).length;
+        const errN = (d.errors || []).length;
+        const parts = ['存入 <b>' + savedN + '</b> 篇'];
+        if (skipN) parts.push('跳过 ' + skipN + ' 篇');
+        if (errN) parts.push('失败 ' + errN + ' 篇');
         parts.push('用时 ' + Math.round((d.durationMs || 0) / 1000) + ' 秒');
         hotLog.innerHTML = parts.join(' · ');
-        toast((d.saved || []).length ? parts.join(' · ') : '没有新文章（可能都收藏过了）',
-              (d.saved || []).length ? 'ok' : '');
+        // 明细列出来：之前一篇都没存成也只说"没有新文章"，用户根本不知道是
+        // Cookie 过期还是正文抽不到。明细是外部标题，只能当纯文本塞进去。
+        const lines = [];
+        for (const e of (d.errors || [])) lines.push('✗ ' + (e.title || e.url || '') + '：' + (e.error || ''));
+        for (const s of (d.skipped || [])) lines.push('– ' + (s.title || s.url || '') + '：' + (s.why || ''));
+        if (lines.length) {
+          const det = document.createElement('div');
+          det.style.cssText = 'margin-top:6px;font-size:12px;line-height:1.7;opacity:.75;white-space:pre-wrap;word-break:break-all;';
+          det.textContent = lines.slice(0, 12).join('\n') + (lines.length > 12 ? '\n… 还有 ' + (lines.length - 12) + ' 条' : '');
+          hotLog.appendChild(det);
+        }
+        let toastMsg, toastType = 'ok';
+        if (savedN) {
+          toastMsg = parts.join(' · ');
+        } else if (errN) {
+          toastMsg = '一篇都没存成：' + ((d.errors[0] || {}).error || '未知原因');
+          toastType = 'err';
+        } else if (skipN) {
+          const whys = {};
+          for (const s of d.skipped) whys[s.why || '未知原因'] = (whys[s.why || '未知原因'] || 0) + 1;
+          toastMsg = '一篇都没存（' + Object.keys(whys).map(w => w + ' ' + whys[w] + ' 篇').join('，') + '）';
+          toastType = 'err';
+        } else {
+          toastMsg = '榜单解析出来是空的，可能接口变了';
+          toastType = 'err';
+        }
+        toast(toastMsg, toastType);
       }
     } catch (e) {
       hotLog.textContent = '拉取失败：' + errText(e);

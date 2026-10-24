@@ -44,6 +44,7 @@ function buildMenu() {
     resetZoom: '实际大小', zoomIn: '放大', zoomOut: '缩小', fullscreen: '全屏',
     window: '窗口', minimize: '最小化', zoomWin: '缩放', front: '全部置于顶层',
     help: '帮助', installExt: '安装浏览器扩展…',
+    openWeb: '在浏览器打开网页版',
     // macOS 系统菜单项：role 的默认标签是英文，中文系统下显式覆盖
     services: '服务', hide: '隐藏' + appName, hideOthers: '隐藏其他', unhide: '全部显示'
   } : {
@@ -54,6 +55,7 @@ function buildMenu() {
     resetZoom: 'Actual Size', zoomIn: 'Zoom In', zoomOut: 'Zoom Out', fullscreen: 'Toggle Fullscreen',
     window: 'Window', minimize: 'Minimize', zoomWin: 'Zoom', front: 'Bring All to Front',
     help: 'Help', installExt: 'Install Browser Extension…',
+    openWeb: 'Open Web UI in Browser',
     services: 'Services', hide: 'Hide ' + appName, hideOthers: 'Hide Others', unhide: 'Show All'
   };
   const template = [
@@ -64,6 +66,7 @@ function buildMenu() {
     { label: L.window, submenu: [ { label: L.minimize, role: 'minimize' }, { label: L.zoomWin, role: 'zoom' }, { type: 'separator' }, { label: L.front, role: 'front' } ] },
     { label: L.help, submenu: [
       { label: L.installExt, click: installExtension },
+      { label: L.openWeb, click: () => { try { shell.openExternal(`http://127.0.0.1:${PORT}/`); } catch (e) { log('openExternal failed:', e && e.message); } } },
       { type: 'separator' },
       { label: zh ? '检查更新…' : 'Check for Updates…', click: checkForUpdatesFromMenu }
     ] }
@@ -187,6 +190,16 @@ function setupUpdaterIPC() {
   });
 
   ipcMain.handle('updater:version', () => app.getVersion());
+
+  // 在系统默认浏览器里打开网页版（桌面窗口里就是这套页面，浏览器打开方便
+  // 复制粘贴、多标签，也顺手验证了局域网内其他设备能访问）
+  ipcMain.handle('web:open', async (_e, u) => {
+    let url = String(u || '').trim();
+    // 只允许打开本机服务，防渲染层被注入后借这个口子开任意网址
+    if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(url)) url = `http://127.0.0.1:${PORT}/`;
+    await shell.openExternal(url);
+    return url;
+  });
 
   // 启动后自动检查：失败会重试（开机后网络常常还没起来），之后每 6 小时再查一次
   const auto = readPref('autoUpdate', true);

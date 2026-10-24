@@ -189,9 +189,19 @@ class HotListEngine {
 
   async _saveOne(source, item) {
     const hooks = this.hooks;
+    // 登录态来源（知乎）看正文也要 Cookie：榜单是带着 Cookie 拉成功的，
+    // 抓原文却裸奔 → 每篇 403 挑战页 → "没有新文章"，用户一头雾水。
+    // 只在原文和榜单同域时才带，避免 Cookie 跟着重定向泄漏给别的站。
+    const headers = { Referer: safeOrigin(item.url) };
+    const ck = String((this._cfgOf(source.id) || {}).cookie || '').trim();
+    if (source.needsCookie && ck) {
+      try {
+        if (new URL(item.url).origin === new URL(source.url).origin) headers.Cookie = ck;
+      } catch { /* 网址不合法就不带 */ }
+    }
     let page;
     try {
-      page = await fetchText(item.url, { Referer: safeOrigin(item.url) }, 15000);
+      page = await fetchText(item.url, headers, 15000);
     } catch (e) {
       throw new Error('抓原文失败：' + ((e && e.message) || e));
     }
