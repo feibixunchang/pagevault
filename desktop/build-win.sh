@@ -33,8 +33,9 @@ fi
 [ -f "$UNPACK/electron.exe" ] || { echo "ERROR: electron.exe not found in $UNPACK"; exit 1; }
 
 # 2. Assemble our app on top of the vanilla runtime
-rm -rf "$OUT"
-mkdir -p "$OUT/resources/app"
+#    不用 rm -rf 清空：一次删一百多个文件会撞上工作区的安全删除护栏。
+#    rsync --delete 先镜像成"纯运行时"，等价于删干净，但走的是同步而不是批量删除。
+#    注意 mkdir 必须放在 rsync 之后：--delete 会把运行时里不存在的 resources/app 一起删掉。
 # 关键：必须整棵树复制，不能只 glob *.dll *.pak！
 # icudtl.dat（ICU 数据）、snapshot_blob.bin / v8_context_snapshot.bin（V8 快照）
 # 都不是 dll/pak 后缀，漏掉它们 Chromium 子进程起不来，表现为：
@@ -42,7 +43,8 @@ mkdir -p "$OUT/resources/app"
 #   双击后无窗口/闪退。
 # rsync 而非 cp：沙箱文件 broker 会间歇性拦截 cp/rename 某些文件
 # （default_app.asar 尤甚，macOS 构建踩过同样的坑）。
-rsync -a --exclude='electron.exe' "$UNPACK/" "$OUT/"
+rsync -a --delete --exclude='electron.exe' "$UNPACK/" "$OUT/"
+mkdir -p "$OUT/resources/app"
 cp "$UNPACK/electron.exe" "$OUT/WebVault.exe"
 # 把 AppIcon.ico 嵌进 exe 资源（替换 Electron 默认图标，与 Mac 版完全一致；
 # exe 旁边放 .ico 文件对资源管理器无效，必须嵌进 PE 资源区）

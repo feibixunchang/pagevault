@@ -216,6 +216,87 @@ function isNewer(remote, local) {
   return false;
 }
 
+// Windows 应用更新用的 PowerShell 脚本。
+// 为什么写成文件而不是 -Command 内联：内联字符串里必然带引号，Node 传参时会把 " 转义成 \"，
+// PowerShell 对 \" 的解析和 cmd 不一样，一旦解析失败就是**静默什么都不做**——
+// 用户看到的就是"点了更新、窗口关了、什么都没发生"。
+// 这里脚本内容全是 ASCII 结构 + 通过 -File 传参数，路径由 PowerShell 自己绑定，不进命令行。
+function psScript() {
+  return `param(
+  [Parameter(Mandatory=$true)][string]$Target,
+  [Parameter(Mandatory=$true)][string]$Src,
+  [Parameter(Mandatory=$true)][string]$Stage,
+  [Parameter(Mandatory=$true)][string]$LogPath
+)
+
+$ErrorActionPreference = 'Continue'
+function Write-Log([string]$Message) {
+  try { Add-Content -LiteralPath $LogPath -Value ('[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] ' + $Message) -Encoding UTF8 } catch { }
+}
+
+$exe  = Join-Path $Target 'WebVault.exe'
+$old  = $Target + '.old-' + (Get-Date -Format 'yyyyMMddHHmmss')
+
+Write-Log '==== 开始应用更新 ===='
+Write-Log ('目标目录: ' + $Target)
+
+# 1. 等旧进程真的退出（最多 60 秒），再强杀一次兜底
+$waited = 0
+while ($waited -lt 120) {
+  $p = Get-Process -Name 'WebVault' -ErrorAction SilentlyContinue
+  if (-not $p) { break }
+  Start-Sleep -Milliseconds 500
+  $waited++
+}
+Get-Process -Name 'WebVault' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 1000
+Write-Log '旧进程已退出'
+
+# 2. 目录交换：全程只做 rename，不去覆盖正在被占用的 exe
+$swapped = $false
+try {
+  if (Test-Path -LiteralPath $Target) {
+    Rename-Item -LiteralPath $Target -NewName (Split-Path -Leaf $old) -ErrorAction Stop
+    Write-Log ('旧目录改名为 ' + (Split-Path -Leaf $old))
+  }
+  Move-Item -LiteralPath $Src -Destination $Target -ErrorAction Stop
+  $swapped = $true
+  Write-Log '新版本已就位'
+} catch {
+  Write-Log ('目录交换失败: ' + $_.Exception.Message)
+}
+
+# 3. 失败要回滚，绝不能让用户对着一个被搬走的空目录
+if (-not $swapped) {
+  if ((Test-Path -LiteralPath $old) -and -not (Test-Path -LiteralPath $Target)) {
+    try { Rename-Item -LiteralPath $old -NewName (Split-Path -Leaf $Target) -ErrorAction Stop; Write-Log '已回滚到旧版本' }
+    catch { Write-Log ('回滚失败: ' + $_.Exception.Message) }
+  } elseif ((Test-Path -LiteralPath $Src) -and -not (Test-Path -LiteralPath $Target)) {
+    try { Move-Item -LiteralPath $Src -Destination $Target -ErrorAction Stop; Write-Log '重试移动成功' }
+    catch { Write-Log ('重试移动失败: ' + $_.Exception.Message) }
+  }
+}
+
+# 4. 启动：无论装没装上，都要尽量把窗口还给用户
+if (Test-Path -LiteralPath $exe) {
+  try { Start-Process -FilePath $exe -WorkingDirectory $Target -ErrorAction Stop; Write-Log '已启动实例' }
+  catch { Write-Log ('启动失败: ' + $_.Exception.Message) }
+} else {
+  Write-Log ('找不到可执行文件: ' + $exe)
+}
+
+# 5. 清理（旧目录可能还被系统占着，删不掉就留给下次）
+Start-Sleep -Milliseconds 800
+if (Test-Path -LiteralPath $old) {
+  try { Remove-Item -LiteralPath $old -Recurse -Force -ErrorAction Stop } catch { Write-Log '旧目录被占用，留待下次清理' }
+}
+if (Test-Path -LiteralPath $Stage) {
+  try { Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction Stop } catch { }
+}
+Write-Log '==== 结束 ===='
+`;
+}
+
 class Updater {
   constructor(opts) {
     this.platform = opts.platform || process.platform;
@@ -337,8 +418,16 @@ class Updater {
       // 3. 备份旧版（便于回滚）
       const backup = target + '.bak-' + Date.now();
       if (fs.existsSync(target)) fs.renameSync(target, backup);
-      // 4. 覆盖安装
-      await this._run('ditto', ['--rsrc', newApp, target]);
+      // 4. 覆盖安装；失败了必须把备份搬回来，否则用户就只剩一个空位置
+      try {
+        await this._run('ditto', ['--rsrc', newApp, target]);
+      } catch (e) {
+        if (fs.existsSync(backup)) {
+          try { fs.rmSync(target, { recursive: true, force: true }); } catch { /* 半截目录尽力删 */ }
+          try { fs.renameSync(backup, target); } catch { /* 回滚也失败就只能保留备份 */ }
+        }
+        throw e;
+      }
       // 5. 延迟启动新实例（等旧实例退出释放单实例锁和端口），然后退出旧进程
       const relaunch = spawn('/bin/sh', ['-c', `sleep 2; open "${target}"`], { detached: true, stdio: 'ignore' });
       relaunch.unref();
@@ -346,29 +435,66 @@ class Updater {
       return { target, backup };
     }
     if (this.platform === 'win32') {
-      // 1. 解压（Win10 1803+ 自带 tar，能解 zip）
-      const unpack = path.join(tmp, 'unpacked');
-      fs.mkdirSync(unpack, { recursive: true });
-      await this._run('tar', ['-xf', zipPath, '-C', unpack]);
-      // 2. 找到解压出的目录（zip 内是 WebVault-win32-x64/）
-      const inner = fs.readdirSync(unpack).find(n => fs.statSync(path.join(unpack, n)).isDirectory());
-      if (!inner) throw new Error('安装包内容异常');
-      const src = path.join(unpack, inner);
+      // Windows 没法学 macOS 那样"先删再拷"：正在运行的 exe 是锁死的，robocopy 覆盖它会失败。
+      // 老实现就是 robocopy /MIR 硬盖 + 内联 -Command 拼一长串 PowerShell，两个都是静默
+      // 失败点（覆盖被拒、命令行引号被 Node 转义后 PowerShell 解析不了），表现就是
+      // "点了安装并重启 → 什么都没发生 → 手动开还是旧版本 → 再提示更新"。
+      //
+      // 现在改成 Squirrel 那套：新版本先解压到**同级目录**（同一个卷），再由一个脚本
+      // 等进程退出 → 把旧目录改名 → 把新目录改名成原来的名字。全程只做 rename，
+      // 不覆盖任何被占用的文件；每一步都写日志，失败也不会把应用弄丢。
       const exeName = 'WebVault.exe';
-      if (!fs.existsSync(path.join(src, exeName))) throw new Error('安装包内没有 ' + exeName);
-      // 3. detached PowerShell：等旧进程退出 → robocopy 覆盖 → 启动新 exe → 清理
-      const target = opts.targetDir || path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Programs', 'WebVault');
-      const ps = [
-        'Start-Sleep 3',
-        `Stop-Process -Name WebVault -Force -ErrorAction SilentlyContinue`,
-        `robocopy "${src}" "${target}" /MIR /NFL /NDL /NJH /NJS /NC /NS /NP`,
-        `Start-Process "${path.join(target, exeName)}"`,
-        `Remove-Item -Recurse -Force "${tmp}" -ErrorAction SilentlyContinue`
-      ].join('; ');
-      const child = spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', ps], { detached: true, stdio: 'ignore' });
+      const target = opts.targetDir || path.dirname(process.execPath);
+      const parent = path.dirname(target);
+
+      // 解压到目标目录的兄弟位置，保证 rename 是同卷操作（不同卷会退化成复制，慢且可能失败）。
+      // 这一步同时充当"写权限探针"：装到 Program Files 之类普通用户写不进的地方，
+      // 直接把原因讲清楚，而不是继续跑一条注定失败的脚本。
+      const stage = path.join(parent, '.pv-update-' + Date.now());
+      try {
+        fs.mkdirSync(stage, { recursive: true });
+      } catch {
+        throw new Error('没有写入权限：' + parent + '。请把程序放到当前用户有权限的目录（如 D:\\WebVault）后再更新，或手动下载新版覆盖。');
+      }
+      const cleanupStage = () => { try { fs.rmSync(stage, { recursive: true, force: true }); } catch { /* 清不掉就算了 */ } };
+      try {
+        await this._run('tar', ['-xf', zipPath, '-C', stage]);
+      } catch (e) {
+        cleanupStage();
+        throw e;
+      }
+
+      const inner = fs.readdirSync(stage).find(n => {
+        try { return fs.statSync(path.join(stage, n)).isDirectory(); } catch { return false; }
+      });
+      if (!inner) { cleanupStage(); throw new Error('安装包内容异常'); }
+      const src = path.join(stage, inner);
+      if (!fs.existsSync(path.join(src, exeName))) { cleanupStage(); throw new Error('安装包内没有 ' + exeName); }
+
+      // 换上去之前先自检版本号：宁可报错，也不要把一个错包/半个包换到用户机器上
+      let newVer = '';
+      try {
+        newVer = JSON.parse(fs.readFileSync(path.join(src, 'resources', 'app', 'package.json'), 'utf8')).version || '';
+      } catch { /* 读不到就不校验 */ }
+      if (newVer && this.state.remoteVersion && !isNewer(newVer, this.currentVersion)) {
+        cleanupStage();
+        throw new Error(`安装包版本异常（包内是 ${newVer}，当前 ${this.currentVersion}）`);
+      }
+
+      const logPath = path.join(os.tmpdir(), 'pagevault-update.log');
+      const ps1 = path.join(os.tmpdir(), 'pagevault-apply-' + Date.now() + '.ps1');
+      fs.writeFileSync(ps1, '\ufeff' + psScript(), 'utf8');
+
+      // 路径全部走 -File 的参数，不拼进命令字符串 —— 中文用户名、空格、引号都不会出问题。
+      // cwd 必须是别的目录：如果子进程的工作目录正好是待改名的 $Target，
+      // Rename-Item 会报"文件正被另一个进程使用"。
+      const child = spawn('powershell.exe', [
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+        '-File', ps1, '-Target', target, '-Src', src, '-Stage', stage, '-LogPath', logPath
+      ], { detached: true, stdio: 'ignore', windowsHide: true, cwd: os.tmpdir() });
       child.unref();
-      this.emit({ status: 'ready', installedTo: target });
-      return { target };
+      this.emit({ status: 'ready', installedTo: target, logPath, newVersion: newVer });
+      return { target, logPath };
     }
     if (this.platform === 'linux') {
       // 解压 tar.gz，再整目录覆盖。注意两种安装形态：
