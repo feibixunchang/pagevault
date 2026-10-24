@@ -281,6 +281,17 @@
     border-radius:7px; padding:5px 11px; font-size:12px; cursor:pointer; }
   .hotLog { font-size:11px; color:var(--muted); line-height:1.6; margin-top:8px; white-space:pre-wrap; }
   .hotLog b { color:var(--text); }
+  .feedAdd { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+  .feedAdd input { flex:1; min-width:150px; font-size:12px; padding:5px 7px; }
+  .feedAdd button { font-size:12px; padding:5px 9px; }
+  .feedRow { display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid var(--border); }
+  .feedRow .nm { flex:1; min-width:0; }
+  .feedRow .nm b { display:block; font-size:13px; font-weight:600; color:var(--text); }
+  .feedRow .nm span { display:block; font-size:11px; color:var(--muted); line-height:1.5;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .feedRow button.pull { border:1px solid var(--accent); color:var(--accent); background:var(--accent-bg); }
+  .feedRow button.pull:disabled { opacity:.5; cursor:default; }
+  .feedRow button.del { color:var(--muted); }
 
   /* ---------- 统一的操作提示（浮在屏幕上，不被面板里的刷新冲掉） ---------- */
   #toast { position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(8px);
@@ -326,6 +337,14 @@
       </select>
     </div>
     <div id="hotList"></div>
+    <h2>RSS 订阅（存全文）</h2>
+    <div class="feedAdd">
+      <input id="feedUrl" placeholder="粘贴 RSS/Atom 订阅地址…" />
+      <button id="feedAddBtn">添加</button>
+      <button id="feedImportBtn" title="从 OPML 文件批量导入">导入 OPML</button>
+      <input type="file" id="feedFile" accept=".opml,.xml,.txt" style="display:none" />
+    </div>
+    <div id="feedList"></div>
     <div class="hotLog" id="hotLog"></div>
   </div>
   <div id="settingsPanel">
@@ -1882,6 +1901,171 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  // ---------- 自定义 RSS 订阅（存全文） ----------
+  const feedListEl = document.getElementById('feedList');
+  const feedUrlInput = document.getElementById('feedUrl');
+  let feeds = [];
+
+  async function loadFeeds() {
+    try {
+      const r = await fetch('/api/feeds');
+      const j = await r.json().catch(() => ({}));
+      feeds = Array.isArray(j.feeds) ? j.feeds : [];
+    } catch { feeds = []; }
+    renderFeeds();
+  }
+
+  function renderFeeds() {
+    if (!feedListEl) return;
+    feedListEl.innerHTML = '';
+    if (!feeds.length) {
+      const tip = document.createElement('div');
+      tip.className = 'hint';
+      tip.textContent = '还没有订阅。粘贴一个 RSS/Atom 地址，或导入 OPML 文件。';
+      feedListEl.appendChild(tip);
+      return;
+    }
+    for (const f of feeds) {
+      const row = document.createElement('div');
+      row.className = 'feedRow';
+
+      const nm = document.createElement('div');
+      nm.className = 'nm';
+      const b = document.createElement('b');
+      b.textContent = f.title || f.url;
+      nm.appendChild(b);
+      const sub = document.createElement('span');
+      sub.textContent = f.url;
+      sub.title = f.url;
+      nm.appendChild(sub);
+      row.appendChild(nm);
+
+      const sel = document.createElement('select');
+      for (const n of [3, 5, 8, 10, 15]) {
+        const o = document.createElement('option');
+        o.value = String(n);
+        o.textContent = n + ' 篇';
+        if (n === (f.limit || 5)) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.title = '每次拉多少篇';
+      sel.addEventListener('change', async () => {
+        await fetch('/api/feeds/' + f.id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limit: Number(sel.value) })
+        });
+        toast('每次拉 ' + sel.value + ' 篇', 'ok');
+      });
+      row.appendChild(sel);
+
+      const btn = document.createElement('button');
+      btn.className = 'pull';
+      btn.textContent = '拉取';
+      btn.addEventListener('click', () => pullFeed(f, btn));
+      row.appendChild(btn);
+
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.textContent = '✕';
+      del.title = '删除这个订阅';
+      del.addEventListener('click', async () => {
+        if (!confirm('删除订阅「' + (f.title || f.url) + '」？')) return;
+        await fetch('/api/feeds/' + f.id, { method: 'DELETE' });
+        toast('已删除', 'ok');
+        loadFeeds();
+      });
+      row.appendChild(del);
+
+      feedListEl.appendChild(row);
+    }
+  }
+
+  async function pullFeed(f, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '拉取中…'; }
+    hotLog.textContent = '正在拉取 ' + (f.title || f.url) + '…';
+    try {
+      const r = await fetch('/api/feeds/' + f.id + '/pull', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: f.limit || 5 })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      const savedN = (d.saved || []).length;
+      const errN = (d.errors || []).length;
+      const skipN = (d.skipped || []).length;
+      const parts = ['存入 <b>' + savedN + '</b> 篇'];
+      if (skipN) parts.push('跳过 ' + skipN + ' 篇');
+      if (errN) parts.push('失败 ' + errN + ' 篇');
+      hotLog.innerHTML = parts.join(' · ');
+      toast(savedN ? parts.join(' · ') : '一篇都没存成（' + ((d.errors[0] || {}).error || '未知原因') + '）',
+            savedN ? 'ok' : 'err');
+      await load();
+    } catch (e) {
+      hotLog.textContent = '拉取失败：' + errText(e);
+      toast('拉取失败：' + errText(e), 'err');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '拉取'; }
+    }
+  }
+
+  const feedAddBtn = document.getElementById('feedAddBtn');
+  if (feedAddBtn) {
+    feedAddBtn.addEventListener('click', async () => {
+      const url = feedUrlInput.value.trim();
+      if (!url) { toast('先填订阅地址', 'err'); return; }
+      feedAddBtn.disabled = true;
+      hotLog.textContent = '正在验证订阅地址…';
+      try {
+        const r = await fetch('/api/feeds', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        hotLog.textContent = '已添加：' + j.feed.title + '（' + j.items + ' 条）';
+        toast('已订阅 ' + (j.feed.title || url), 'ok');
+        feedUrlInput.value = '';
+        await loadFeeds();
+      } catch (e) {
+        hotLog.textContent = '添加失败：' + errText(e);
+        toast('添加失败：' + errText(e), 'err');
+      } finally {
+        feedAddBtn.disabled = false;
+      }
+    });
+    feedUrlInput.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); feedAddBtn.click(); }
+    });
+  }
+
+  // OPML 批量导入（RSS 阅读器导出的订阅清单）
+  const feedImportBtn = document.getElementById('feedImportBtn');
+  const feedFile = document.getElementById('feedFile');
+  if (feedImportBtn && feedFile) {
+    feedImportBtn.addEventListener('click', () => feedFile.click());
+    feedFile.addEventListener('change', async () => {
+      const file = feedFile.files && feedFile.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const r = await fetch('/api/feeds/import', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ opml: text })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        hotLog.textContent = '导入完成：新增 ' + j.added + ' 个订阅，共 ' + j.total + ' 个';
+        toast('导入 ' + j.added + ' 个订阅', 'ok');
+        await loadFeeds();
+      } catch (e) {
+        hotLog.textContent = '导入失败：' + errText(e);
+        toast('导入失败：' + errText(e), 'err');
+      } finally {
+        feedFile.value = '';
+      }
+    });
+  }
+
   // ---------- 热榜 ----------
   const hotPanel = document.getElementById('hotPanel');
   const hotList = document.getElementById('hotList');
@@ -1900,7 +2084,7 @@
     ev.stopPropagation();
     settingsPanel.classList.remove('open');
     hotPanel.classList.toggle('open');
-    if (hotPanel.classList.contains('open')) { fitHotPanel(); loadSources(); }
+    if (hotPanel.classList.contains('open')) { fitHotPanel(); loadSources(); loadFeeds(); }
   });
   document.addEventListener('click', (ev) => {
     if (!hotPanel.contains(ev.target) && ev.target.id !== 'hotBtn') hotPanel.classList.remove('open');

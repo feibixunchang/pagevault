@@ -55,11 +55,46 @@ function parseFeed(xml, baseUrl) {
       link = m ? m[1] : '';
     }
     const title = stripTags(pick(b, 'title'));
-    let summary = stripTags(pick(b, 'description') || pick(b, 'summary') || pick(b, 'content'));
+    // ⚠️ 两处细节：
+    //  1) 标签名可能带冒号（content:encoded），取不到就退回 description；
+    //  2) 有些源（如 IT之家）把正文 HTML **转义**后放进 description
+    //     （&lt;p&gt;…），不解实体的话存下来会变成一堆字面量 "<p>"。
+    const rawDesc = pick(b, 'content:encoded') || pick(b, 'description') ||
+      pick(b, 'summary') || pick(b, 'content');
     if (!link || !title) continue;
     let url = link.trim();
     if (baseUrl) { try { url = new URL(url, baseUrl).toString(); } catch { /* 保留原样 */ } }
-    out.push({ title, url, summary: summary.slice(0, 300) });
+    const html = decode(String(rawDesc || '')).trim();   // 先解实体 → 真正的 HTML
+    const plain = stripTags(html);
+    out.push({
+      title,
+      url,
+      html,
+      summary: plain.slice(0, 300),
+      contentLength: plain.length
+    });
+  }
+  return out;
+}
+
+/**
+ * 解析 OPML（RSS 阅读器导出的订阅清单）。
+ * 返回 [{title, url}]，url 取 outline 的 xmlUrl 属性。
+ */
+function parseOpml(xml) {
+  const out = [];
+  const re = /<outline\b[^>]*>/gi;
+  let m;
+  while ((m = re.exec(String(xml || '')))) {
+    const tag = m[0];
+    const urlM = tag.match(/xmlUrl\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
+    if (!urlM) continue;
+    const url = decode((urlM[1] || urlM[2] || '').trim());
+    if (!url || !/^https?:\/\//i.test(url)) continue;
+    const tM = tag.match(/text\s*=\s*(?:"([^"]*)"|'([^']*)')/i) ||
+      tag.match(/title\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
+    const title = stripTags((tM && (tM[1] || tM[2])) || url);
+    out.push({ title, url });
   }
   return out;
 }
@@ -265,6 +300,8 @@ const BY_ID = new Map(SOURCES.map(s => [s.id, s]));
 module.exports = {
   SOURCES,
   UA_DESKTOP,
+  parseFeed,
+  parseOpml,
   getSource: (id) => BY_ID.get(id) || null,
   /**
    * 把某个来源的原始响应解析成条目数组。

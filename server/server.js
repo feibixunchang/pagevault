@@ -15,6 +15,7 @@ const { createProvider } = require('./providers');
 const { zipStore, zipStoreStream, zipRead } = require('./zip');
 const { attachWebSocket } = require('./extws');
 const { pageTitle, usableTitle, looksLikeGatePage } = require('./titles');
+const { parseFeed, parseOpml } = require('./sources');
 
 const VERSION = '1.5.6';
 const PORT = process.env.PORT || 8731;
@@ -234,12 +235,57 @@ const hotlist = new HotListEngine({
   listUrls: () => new Set(loadIndex().map(m => m.url).filter(Boolean)),
   pageTitle: (html, url) => pageTitle(html, url),
   persistPage: (payload, opts) => persistPage(payload, opts),
+  // 自定义 RSS 订阅：现造一个"来源"对象，热榜引擎就能照常处理
+  resolveSource: (sid) => {
+    const f = feedById(feedIdFromSource(sid));
+    if (!f) return null;
+    return {
+      id: sid,
+      name: f.title || f.url,
+      type: 'rss',
+      url: f.url,
+      // 抽正文时不指定选择器 → 走站点选择器表 + 段落打分
+      parse: (text) => parseFeed(text, f.url)
+    };
+  },
   log,
   onPulled: (r) => {
     log('hotlist pulled', r.sourceId, 'saved=' + r.saved.length, 'errors=' + r.errors.length);
     broadcastMeta({ type: 'hotlist', sourceId: r.sourceId, saved: r.saved.length, at: Date.now() });
   }
 });
+
+// ---------- 自定义 RSS 订阅 ----------
+// 存在 prefs.json 的 hotlist.feeds 里（数组）。id 用 url 的 sha1 前 12 位。
+function feedList() {
+  const p = loadPrefsRaw();
+  const h = p.hotlist || {};
+  const arr = Array.isArray(h.feeds) ? h.feeds : [];
+  return arr.filter(f => f && f.url).map(f => ({
+    id: String(f.id || feedId(f.url)),
+    url: String(f.url),
+    title: String(f.title || f.url),
+    limit: Math.max(1, Math.min(20, Number(f.limit) || 5)),
+    enabled: f.enabled !== false,
+    intervalSec: Math.max(0, Math.min(86400 * 7, Number(f.intervalSec) || 0)),
+    addedAt: f.addedAt || ''
+  }));
+}
+function feedId(url) {
+  return crypto.createHash('sha1').update(String(url)).digest('hex').slice(0, 12);
+}
+function feedById(id) {
+  return feedList().find(f => f.id === id) || null;
+}
+function saveFeeds(list) {
+  const p = loadPrefsRaw();
+  p.hotlist = Object.assign({}, p.hotlist || {}, { feeds: list });
+  try { fs.writeFileSync(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ }
+  return list;
+}
+/** 订阅 id 统一用 'feed:' 前缀，避免和内置来源重名 */
+const feedSourceId = (id) => 'feed:' + id;
+const feedIdFromSource = (sid) => String(sid || '').replace(/^feed:/, '');
 
 /** 热榜配置存在 prefs.json 的 hotlist.sources 里 */
 function hotlistConfig() {
@@ -764,6 +810,120 @@ const server = http.createServer((req, res) => {
       send(res, 200, JSON.stringify({ ok: true, config: cur.sources[hotCfg[1]] }), { 'Content-Type': 'application/json; charset=utf-8' });
     });
     return;
+  }
+
+  // ---------- 自定义 RSS 订阅 ----------
+  if (req.method === 'GET' && p === '/api/feeds') {
+    send(res, 200, JSON.stringify({ feeds: feedList() }), { 'Content-Type': 'application/json; charset=utf-8' });
+    return;
+  }
+  if (req.method === 'POST' && p === '/api/feeds') {
+    readBody(req, 1024 * 1024, (err, buf) => {
+      if (err) { send(res, 413, JSON.stringify({ error: '请求体太大' }), { 'Content-Type': 'application/json' }); return; }
+      let payload = {};
+      try { payload = JSON.parse(buf.toString('utf8') || '{}'); } catch { payload = {}; }
+      const url = String(payload.url || '').trim();
+      if (!/^https?:\/\//i.test(url)) {
+        send(res, 400, JSON.stringify({ error: '请填 http:// 或 https:// 开头的订阅地址' }), { 'Content-Type': 'application/json; charset=utf-8' });
+        return;
+      }
+      // 先真拉一次，确认这是真订阅（顺便拿到标题和条目数）
+      fetchHtml(url, 0).then(({ buffer }) => {
+        const xml = buffer.toString('utf8');
+        const items = parseFeed(xml, url);
+        if (!items.length) throw new Error('这个地址里没解析出文章（可能不是 RSS/Atom，或者需要登录）');
+        const feedTitle = String(payload.title || '').trim() ||
+          (/<title[^>]*>([\s\S]*?)<\/title>/i.exec(xml) || [])[1] ||
+          new URL(url).hostname;
+        const list = feedList();
+        const id = feedId(url);
+        const exist = list.find(f => f.id === id);
+        const rec = {
+          id,
+          url,
+          title: feedTitle.slice(0, 200),
+          limit: Math.max(1, Math.min(20, Number(payload.limit) || (exist ? exist.limit : 5))),
+          enabled: true,
+          intervalSec: exist ? exist.intervalSec : 0,
+          addedAt: exist ? exist.addedAt : new Date().toISOString()
+        };
+        saveFeeds([...(list.filter(f => f.id !== id)), rec]);
+        send(res, 200, JSON.stringify({ ok: true, feed: rec, items: items.length }), { 'Content-Type': 'application/json; charset=utf-8' });
+      }).catch((e) => {
+        send(res, 502, JSON.stringify({ error: friendlyFetchError(e) }), { 'Content-Type': 'application/json; charset=utf-8' });
+      });
+    });
+    return;
+  }
+  // 批量导入 OPML（RSS 阅读器导出的订阅清单）
+  if (req.method === 'POST' && p === '/api/feeds/import') {
+    readBody(req, 4 * 1024 * 1024, (err, buf) => {
+      if (err) { send(res, 413, JSON.stringify({ error: '请求体太大' }), { 'Content-Type': 'application/json' }); return; }
+      let payload = {};
+      try { payload = JSON.parse(buf.toString('utf8') || '{}'); } catch { payload = {}; }
+      const opml = String(payload.opml || '');
+      const items = parseOpml(opml);
+      if (!items.length) {
+        send(res, 400, JSON.stringify({ error: '这个文件里没找到订阅地址（OPML 里的 xmlUrl）' }), { 'Content-Type': 'application/json; charset=utf-8' });
+        return;
+      }
+      const list = feedList();
+      const added = [];
+      for (const it of items) {
+        const id = feedId(it.url);
+        if (list.some(f => f.id === id)) continue;
+        const rec = {
+          id, url: it.url, title: String(it.title || it.url).slice(0, 200),
+          limit: 5, enabled: true, intervalSec: 0, addedAt: new Date().toISOString()
+        };
+        list.push(rec);
+        added.push(rec);
+      }
+      saveFeeds(list);
+      send(res, 200, JSON.stringify({ ok: true, added: added.length, total: list.length, feeds: list }), { 'Content-Type': 'application/json; charset=utf-8' });
+    });
+    return;
+  }
+  const feedM = p.match(/^\/api\/feeds\/([\w-]+)(\/pull)?$/);
+  if (feedM) {
+    const id = feedM[1];
+    const feed = feedById(id);
+    if (!feed) { send(res, 404, JSON.stringify({ error: '没有这个订阅' }), { 'Content-Type': 'application/json; charset=utf-8' }); return; }
+    if (req.method === 'DELETE' && !feedM[2]) {
+      saveFeeds(feedList().filter(f => f.id !== id));
+      send(res, 200, JSON.stringify({ ok: true }), { 'Content-Type': 'application/json; charset=utf-8' });
+      return;
+    }
+    if (req.method === 'PUT' && !feedM[2]) {
+      readBody(req, 256 * 1024, (err, buf) => {
+        if (err) { send(res, 413, JSON.stringify({ error: '请求体太大' }), { 'Content-Type': 'application/json' }); return; }
+        let payload = {};
+        try { payload = JSON.parse(buf.toString('utf8') || '{}'); } catch { payload = {}; }
+        const list = feedList();
+        const cur = list.find(f => f.id === id);
+        if (!cur) { send(res, 404, JSON.stringify({ error: '没有这个订阅' }), { 'Content-Type': 'application/json' }); return; }
+        if (payload.title !== undefined) cur.title = String(payload.title).slice(0, 200);
+        if (payload.limit !== undefined) cur.limit = Math.max(1, Math.min(20, Number(payload.limit) || cur.limit));
+        if (typeof payload.enabled === 'boolean') cur.enabled = payload.enabled;
+        if (payload.intervalSec !== undefined) cur.intervalSec = Math.max(0, Math.min(86400 * 7, Number(payload.intervalSec) || 0));
+        saveFeeds(list);
+        send(res, 200, JSON.stringify({ ok: true, feed: cur }), { 'Content-Type': 'application/json; charset=utf-8' });
+      });
+      return;
+    }
+    if (req.method === 'POST' && feedM[2] === '/pull') {
+      readBody(req, 256 * 1024, (err, buf) => {
+        if (err) { send(res, 413, JSON.stringify({ error: '请求体太大' }), { 'Content-Type': 'application/json; charset=utf-8' }); return; }
+        let payload = {};
+        try { payload = JSON.parse(buf.toString('utf8') || '{}'); } catch { payload = {}; }
+        hotlist.pull(feedSourceId(id), { limit: Number(payload.limit) || feed.limit }).then(r => {
+          send(res, 200, JSON.stringify(r), { 'Content-Type': 'application/json; charset=utf-8' });
+        }).catch(e => {
+          send(res, 502, JSON.stringify({ error: (e && e.message) || String(e) }), { 'Content-Type': 'application/json; charset=utf-8' });
+        });
+      });
+      return;
+    }
   }
 
 // 偏好设置（主题/语言，阅读器与桌面端主进程共用）

@@ -352,11 +352,15 @@ function bodyOnly(html) {
  */
 const SITE_SELECTORS = [
   { host: /(^|\.)mp\.weixin\.qq\.com$/, sels: ['#js_content', '.rich_media_content'] },
-  { host: /(^|\.)zhihu\.com$/, sels: ['.Post-RichText', '.RichContent-inner', 'article'] },
+  // 知乎：答案正文在 .RichText（class 含 CopyrightRichText-…），
+  // 问题描述在 .QuestionRichText，外层 .RichContent-inner
+  { host: /(^|\.)zhihu\.com$/, sels: ['.RichText', '.RichContent-inner', '.QuestionRichText', '.Post-RichText', 'article'] },
   { host: /(^|\.)juejin\.cn$/, sels: ['.markdown-body', '.article-content'] },
   { host: /(^|\.)sspai\.com$/, sels: ['.article-content', '.content'] },
   { host: /(^|\.)ithome\.com$/, sels: ['#paragraph', '.post_content'] },
-  { host: /(^|\.)v2ex\.com$/, sels: ['.topic_content'] },
+  { host: /(^|\.)v2ex\.com$/, sels: ['.topic_content', '.cell'] },
+  { host: /(^|\.)chinanews\.com(\.cn)?$/, sels: ['.left_zw', '#content', '.content_desc'] },
+  { host: /(^|\.)people\.com\.cn$/, sels: ['#rwb_zw', '.rm_txt_con', '#text'] },
   { host: /(^|\.)csdn\.net$/, sels: ['#content_views', 'article'] },
   { host: /(^|\.)cnblogs\.com$/, sels: ['#cnblogs_post_body', '.postBody'] },
   { host: /(^|\.)jianshu\.com$/, sels: ['article'] },
@@ -365,7 +369,9 @@ const SITE_SELECTORS = [
   { host: /(^|\.)infoq\.cn$/, sels: ['.article-preview', 'article'] },
   { host: /(^|\.)solidot\.org$/, sels: ['.about_at', '.contentbox'] },
   { host: /(^|\.)ifanr\.com$/, sels: ['.article-content', '.article-body'] },
-  { host: /(^|\.)geekpark\.net$/, sels: ['.detail-content', '.article_content'] }
+  { host: /(^|\.)geekpark\.net$/, sels: ['.detail-content', '.article_content'] },
+  { host: /(^|\.)ruanyifeng\.com$/, sels: ['#main-content', '.entry-content', 'article'] },
+  { host: /(^|\.)news\.ycombinator\.com$/, sels: ['.toptext', '.commtext'] }
 ];
 
 function defaultSelectorsFor(url) {

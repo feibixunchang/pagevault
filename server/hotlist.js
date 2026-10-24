@@ -124,7 +124,9 @@ class HotListEngine {
    */
   async pull(sourceId, opts) {
     const o = opts || {};
-    const source = getSource(sourceId);
+    // 自定义 RSS 订阅不在内置列表里，由 hooks.resolveSource 现造一个来源对象
+    const source = getSource(sourceId) ||
+      (this.hooks.resolveSource ? this.hooks.resolveSource(sourceId) : null);
     if (!source) throw new Error('没有这个热榜来源');
     const st = this.state(sourceId);
     if (st.running) throw new Error('正在拉取中，稍等一下');
@@ -203,10 +205,21 @@ class HotListEngine {
       } catch { /* 网址不合法就不带 */ }
     }
     let page;
-    try {
-      page = await fetchText(item.url, headers, 15000);
-    } catch (e) {
-      throw new Error('抓原文失败：' + ((e && e.message) || e));
+    // RSS 订阅：条目自带完整正文（content:encoded）时直接用它，
+    // 省一次抓原文，也避免原文站要登录/被反爬。
+    // ⚠️ 阈值看**纯文字数**不是 HTML 长度：V2EX 首页 RSS 只有帖子开头几百字，
+    // 但带标签的 HTML 轻易上千字节，按 HTML 长度判断会误以为"已是全文"，
+    // 结果存下来的是摘要而不是帖子全文。
+    const feedHtml = String(item.html || '').trim();
+    const feedTextLen = Number(item.contentLength || 0);
+    if (feedTextLen >= 800) {
+      page = { text: feedHtml, finalUrl: item.url, contentType: 'text/html' };
+    } else {
+      try {
+        page = await fetchText(item.url, headers, 15000);
+      } catch (e) {
+        throw new Error('抓原文失败：' + ((e && e.message) || e));
+      }
     }
     // 榜单条目自带标题（来自官方接口）就用它的；没有才现从原文里挖。
     // 传 url 进去是为了让 titles.js 能排掉"标题其实是个网址"这种假标题。
