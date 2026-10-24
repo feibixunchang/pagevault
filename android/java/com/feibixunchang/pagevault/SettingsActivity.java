@@ -28,6 +28,9 @@ public class SettingsActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         Prefs.applyTheme(this);
         super.onCreate(savedInstanceState);
+        // 别指望 MainActivity 一定先跑过：进程被杀后系统恢复、或从「分享」直接进来时，
+        // 这里要是没有 Api.init，请求会退回到写死的默认服务器地址，存的库不是用户配的那台。
+        Api.init(this);
         setContentView(R.layout.activity_settings);
 
         serverInput = findViewById(R.id.serverInput);

@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.EditText;
@@ -28,6 +29,9 @@ public class AddUrlActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         Prefs.applyTheme(this);
         super.onCreate(savedInstanceState);
+        // 别指望 MainActivity 一定先跑过：进程被杀后系统恢复、或从「分享」直接进来时，
+        // 这里要是没有 Api.init，请求会退回到写死的默认服务器地址，存的库不是用户配的那台。
+        Api.init(this);
         setContentView(R.layout.activity_addurl);
 
         urlInput = findViewById(R.id.urlInput);
@@ -47,6 +51,28 @@ public class AddUrlActivity extends Activity {
 
         // 打开就自动聚焦并弹键盘，直接粘贴
         urlInput.requestFocus();
+
+        // 从微信/浏览器「分享 → 网页收藏」进来：链接已经在 Intent 里了，直接存，
+        // 不用用户再复制粘贴一遍。手机上没有扩展那套整页抓取，分享是最顺手的入口。
+        String shared = sharedUrl(getIntent());
+        if (shared != null) {
+            urlInput.setText(shared);
+            status.setText(R.string.share_saving);
+            status.setVisibility(View.VISIBLE);
+            save();
+        }
+    }
+
+    /** 从 ACTION_SEND 的文本里抠出第一个 http(s) 链接；不是分享场景就返回 null */
+    private static String sharedUrl(Intent it) {
+        if (it == null || !Intent.ACTION_SEND.equals(it.getAction())) return null;
+        String text = it.getStringExtra(Intent.EXTRA_TEXT);
+        if (text == null || text.trim().isEmpty()) return null;
+        // 分享文本常是「标题 + 链接」或带中文标点的一段话，只取链接本身
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("https?://[^\\s\"'<>，。、；：）】」]+")
+                .matcher(text);
+        return m.find() ? m.group() : null;
     }
 
     private void save() {

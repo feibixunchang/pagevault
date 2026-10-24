@@ -42,9 +42,8 @@ const ctx = {
     process.stdout.write(`\n=== ${s.emoji} ${s.name} ===\n`);
     try {
       const r = await fetchRaw(s.url, s.headers);
-      let items;
-      if (s.async) items = await s.parse(r.text, ctx);
-      else items = require('./sources.js').parseList(s, r.text, ctx);
+      // parseList 现在一定是 Promise（有的来源要异步展开每一条）
+      const items = await require('./sources.js').parseList(s, r.text, ctx);
       console.log(`  榜单条目: ${items.length}`);
       for (const it of items.slice(0, 3)) {
         console.log(`   · ${it.title.slice(0, 42)}  ${it.url.slice(0, 68)}`);

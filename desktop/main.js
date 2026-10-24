@@ -289,10 +289,44 @@ function log() {
   try { fs.appendFileSync(LOG_FILE, line); } catch { /* 日志写不出去不影响主流程 */ }
 }
 
+// 端口被占用时，要确认对方真的是"本程序的另一个实例"（比如上次没退干净的窗口），
+// 而不是随便哪个占着 8731 的程序 —— 后者会让窗口加载出一个陌生页面，
+// 用户看到的是"打开就变了个网站"，比报错还难查。
+function probePageVault(cb) {
+  let done = false;
+  const finish = (ok) => { if (!done) { done = true; cb(ok); } };
+  try {
+    const req = require('http').get(
+      { host: '127.0.0.1', port: PORT, path: '/api/status', timeout: 1500 },
+      (res) => {
+        let buf = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => { buf += c; if (buf.length > 16384) { res.destroy(); finish(false); } });
+        res.on('end', () => {
+          try { finish(!!JSON.parse(buf).ok); } catch { finish(false); }
+        });
+      }
+    );
+    req.on('timeout', () => { req.destroy(); finish(false); });
+    req.on('error', () => finish(false));
+  } catch { finish(false); }
+}
+
 function startServer(cb) {
   // 端口已被占用（比如另一个实例/Mac 端）→ 直接复用，不重复 fork
   const probe = net.connect(PORT, '127.0.0.1');
-  probe.on('connect', () => { probe.destroy(); log('port ' + PORT + ' already in use, reusing existing server'); cb(true); });
+  probe.on('connect', () => {
+    probe.destroy();
+    probePageVault((isPv) => {
+      if (isPv) {
+        log('port ' + PORT + ' already serving PageVault, reusing existing server');
+        cb(true);
+      } else {
+        log('port ' + PORT + ' is occupied by another program');
+        cb(false, 'port-busy');
+      }
+    });
+  });
   probe.on('error', () => {
     probe.destroy();
     const script = serverScriptPath();
@@ -338,7 +372,7 @@ function startServer(cb) {
 
 // ---------- 内置页面：连接中 / 启动失败 ----------
 // Windows 双击出问题时用户能直接看到提示（而不是闪退或白屏）；日志路径一并显示。
-function localPage(kind) {
+function localPage(kind, reason) {
   const c = themeColors();
   const zh = (app.getLocale() || '').toLowerCase().startsWith('zh');
   const title = kind === 'connecting'
@@ -346,8 +380,11 @@ function localPage(kind) {
     : (zh ? '本地服务启动失败' : 'Local service failed to start');
   const body = kind === 'connecting'
     ? (zh ? '首次启动需要几秒钟，请稍候。' : 'First launch takes a few seconds, please wait.')
-    : (zh ? '可以试试：① 暂时关闭杀毒软件/安全卫士再打开；② 右键 网页收藏.exe → 属性 → 勾选「解除锁定」→ 确定，再双击。'
-          : 'Try: ① temporarily disable your antivirus and launch again; ② right-click the exe → Properties → check "Unblock" → OK, then double-click again.');
+    : reason === 'port-busy'
+      ? (zh ? '端口 8731 被别的程序占用了，网页收藏起不来。关掉占用它的程序（常见的是别的开发服务器，或上次没退干净的旧副本），再打开一次。'
+            : 'Port 8731 is taken by another program, so PageVault cannot start. Quit whatever is using it (often an old copy that did not exit cleanly, or another dev server) and open the app again.')
+      : (zh ? '可以试试：① 暂时关闭杀毒软件/安全卫士再打开；② 右键 网页收藏.exe → 属性 → 勾选「解除锁定」→ 确定，再双击。'
+            : 'Try: ① temporarily disable your antivirus and launch again; ② right-click the exe → Properties → check "Unblock" → OK, then double-click again.');
   const hint = kind === 'connecting' ? ''
     : (zh ? '诊断日志：' : 'Diagnostic log: ') + LOG_FILE;
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
@@ -434,7 +471,9 @@ function createWindow(url) {
     } catch (e) { log('openExternal failed:', e && e.message); }
     return { action: 'deny' };
   });
-  win.on('closed', () => {});
+  // 窗口关掉后别留着一个已销毁的引用：macOS 上所有窗口关了 app 还活着，
+  // 之后 activate 会重建窗口，这里不同步清掉就会拿旧引用去 isDestroyed()
+  win.on('closed', () => { if (mainWin === win) mainWin = null; });
   // 长时间挂着（笔记本合盖一晚上）后再回到应用，顺手补一次检查，别等到 6 小时定时器
   win.on('focus', () => {
     if (readPref('autoUpdate', true) === false) return;
@@ -470,10 +509,10 @@ if (!app.requestSingleInstanceLock()) {
     setupUpdaterIPC();
     // 先出窗口（显示"正在连接"），再去起服务：失败也看得到界面，不再是双击无反应
     mainWin = createWindow(localPage('connecting'));
-    startServer((ok) => {
-      log('startServer -> ' + (ok ? 'ok' : 'FAILED'));
+    startServer((ok, reason) => {
+      log('startServer -> ' + (ok ? 'ok' : 'FAILED') + (reason ? ' (' + reason + ')' : ''));
       if (!mainWin || mainWin.isDestroyed()) return;
-      mainWin.loadURL(ok ? `http://127.0.0.1:${PORT}/` : localPage('error'));
+      mainWin.loadURL(ok ? `http://127.0.0.1:${PORT}/` : localPage('error', reason));
     });
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) mainWin = createWindow();

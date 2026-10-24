@@ -63,7 +63,14 @@
     <string name="hot_pull_all">全部拉取</string>
     <string name="hot_pulling">正在拉取 %1$s…</string>
     <string name="hot_pulling_all">正在依次拉取所有来源…</string>
-    <string name="hot_tip">服务端会把榜单里的文章抓下来、只留正文存进库。已经收藏过的会自动跳过。</string>
+    <string name="hot_tip">服务端会把榜单里的文章抓下来、只留正文存进库。已经收藏过的会自动跳过。需要登录的来源请长按那一行填 Cookie。</string>
+    <string name="cookie_save">保存</string>
+    <string name="cookie_saved">%1$s 的 Cookie 已保存</string>
+    <string name="cookie_cleared">Cookie 已清除</string>
+    <string name="cookie_fail">Cookie 保存失败：%1$s</string>
+    <string name="star_fail">收藏操作失败</string>
+    <string name="share_saving">正在保存分享的链接…</string>
+    <string name="share_no_url">分享的内容里没找到网址</string>
     <string name="empty">还没有收藏\n在电脑上用扩展一键保存，或点右上角 ＋ 粘贴链接</string>
     <string name="load_fail">加载失败：%1$s</string>
     <string name="size_kb">%1$d KB</string>

@@ -259,7 +259,12 @@ final class Store: ObservableObject {
     func hotSources() async throws -> [HotSource] {
         guard let api = api else { throw APIError(message: "服务端地址填得不对，去设置里改一下") }
         let data = try await api.hotSources()
-        return (try? JSONDecoder().decode([HotSource].self, from: data)) ?? []
+        do {
+            return try JSONDecoder().decode([HotSource].self, from: data)
+        } catch {
+            // 以前这里 try? 吞掉解析错误，界面上就是"一个来源都没有"，看不出到底哪里不对
+            throw APIError(message: "来源清单解析失败，服务端版本可能太旧（请更新服务端）")
+        }
     }
 
     /// 拉某个来源

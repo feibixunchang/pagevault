@@ -864,7 +864,11 @@
         <button class="del-x" title="删除">×</button>`;
       d.querySelector('.t').textContent = p.title || '(无标题)';
       d.querySelector('.badge').textContent = p.platform || 'unknown';
-      d.querySelector('.plat').textContent = t('from2') + ' ' + (p.url ? new URL(p.url).hostname : '—');
+      // 个别老存档/异常抓取的 url 可能不是合法地址，new URL 会抛错 ——
+      // 以前一抛就把整个 render 打断，列表直接空白。这里单独兜住，只影响这一行。
+      let host = '—';
+      try { if (p.url) host = new URL(p.url).hostname; } catch { host = p.url || '—'; }
+      d.querySelector('.plat').textContent = t('from2') + ' ' + host;
       d.querySelector('.dt').textContent = date.toLocaleString();
       d.querySelector('.sz').textContent = (p.size/1024).toFixed(0) + ' KB';
       if (p.starred) d.querySelector('.star').classList.add('on');
@@ -895,8 +899,18 @@
     const el = document.querySelector('.item[data-id="' + p.id + '"]');
     if (el) el.classList.add('active');
     frame.src = '/p/' + p.id;
-    viewmeta.innerHTML = t('savedAt') + ' <b>' + new Date(p.savedAt).toLocaleString() + '</b> · ' + t('from') + ' ' + (p.platform||'unknown') +
-      ' · <a href="' + (p.url||'#') + '" target="_blank" rel="noopener">' + t('openOriginal') + '</a>';
+    // 用 DOM 拼，不要拼 HTML 字符串：标题/URL 是从网页抓来的，里面可能有引号或尖括号
+    viewmeta.textContent = t('savedAt') + ' ';
+    const timeEl = document.createElement('b');
+    timeEl.textContent = new Date(p.savedAt).toLocaleString();
+    viewmeta.appendChild(timeEl);
+    viewmeta.appendChild(document.createTextNode(' · ' + t('from') + ' ' + (p.platform || 'unknown') + ' · '));
+    const link = document.createElement('a');
+    link.href = p.url || '#';
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = t('openOriginal');
+    viewmeta.appendChild(link);
     document.getElementById('del').style.display = 'inline-block';
     document.getElementById('reader').style.display = 'inline-block';
     document.getElementById('exp').style.display = 'inline-block';
@@ -949,6 +963,11 @@
     render(q);
   });
 
+  // ⚠️ 这里以前又绑了一个 searchEl 的 input 监听（render 立即执行）。
+  // 它和上面那个防抖的叠在一起，全文搜索时每敲一个字都会先用**上次**的 ftResults 渲染一遍，
+  // 表现就是「闪一下『正文里没搜到』，半秒后才出结果」。已删除，只保留上面那一个。
+
+
   // 阅读模式：用 Readability 从保存的页面抽取正文，去掉页头/侧栏/推荐流等杂项
   // 正文的字号/字体/粗细沿用界面那三项设置（同一套偏好，不另设一套）
   let readerArticle = null;
@@ -965,7 +984,6 @@
     if (!readerArticle) return;
     const { px, fam, weight, titleWeight } = readerTypeStyle();
     const a = readerArticle;
-    const byline = a.byline ? '<p class="rv-byline">' + a.byline + '</p>' : '';
     const rvStyle = `<style>
       :root { color-scheme: light dark; }
       body { margin:0; background:#ffffff; }
@@ -994,8 +1012,12 @@
     const fdoc = frame.contentDocument;
     if (!fdoc) return;
     fdoc.open();
-    fdoc.write('<!DOCTYPE html><html class="' + (rvDark ? 'rv-dark' : '') + '"><head><meta charset="utf-8">' + rvStyle + '</head><body>'
-      + '<div class="rv-body"><h1>' + (a.title || '') + '</h1>' + byline + a.content + '</div></body></html>');
+    // 阅读模式是整篇重写进 iframe 的，原来 /p/:id 上那条 CSP 会随 open() 一起丢掉，
+    // 所以这里再声明一次：正文里若残留脚本，也不许它调本地 API / 往外发数据
+    fdoc.write('<!DOCTYPE html><html class="' + (rvDark ? 'rv-dark' : '') + '"><head><meta charset="utf-8">'
+      + '<meta http-equiv="Content-Security-Policy" content="connect-src \'none\'; form-action \'none\'">'
+      + rvStyle + '</head><body>'
+      + '<div class="rv-body"><h1>' + esc(a.title) + '</h1>' + (a.byline ? '<p class="rv-byline">' + esc(a.byline) + '</p>' : '') + a.content + '</div></body></html>');
     fdoc.close();
   }
 
@@ -1053,7 +1075,6 @@
 
   document.getElementById('del').addEventListener('click', () => deletePage(currentId));
 
-  searchEl.addEventListener('input', () => render(searchEl.value));
   document.getElementById('refresh').addEventListener('click', load);
 
   // 保存事件实时推送：有新页面存入时自动刷新列表（SSE），断线自动重连
@@ -1833,6 +1854,12 @@
     if (typeof e === 'string') return e;
     return e.message || e.error || String(e);
   }
+  /** 抓来的标题/byline 要当纯文本塞进阅读模式，不能直接当 HTML */
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
 
   // ---------- 热榜 ----------
   const hotPanel = document.getElementById('hotPanel');
@@ -1933,7 +1960,9 @@
         tip.textContent = s.cookieHint || '这个来源需要登录 Cookie';
         box.appendChild(tip);
         const ta = document.createElement('textarea');
-        ta.placeholder = 'cookie: z_c0=…';
+        // Cookie 不再从 /api/prefs 回传（那是凭证，不该发给客户端），
+        // 所以输入框永远是空的：已配置的显示成占位提示，用户想换就整行重贴。
+        ta.placeholder = s.hasCookie ? '已配置 Cookie（留空表示不改动；要换就整行重贴）' : 'cookie: z_c0=…';
         const hp = prefs.hotlist && prefs.hotlist.sources && prefs.hotlist.sources[s.id];
         ta.value = (hp && hp.cookie) || '';
         box.appendChild(ta);
@@ -1973,6 +2002,33 @@
         hotList.appendChild(box);
       }
     }
+    syncHotInterval();
+  }
+
+  // 把「自动拉取间隔」下拉框回显成服务端的真实值。
+  // 以前这个 select 从来不读回值，永远停在「不自动」——用户以为没开自动拉取，
+  // 实际上定时器一直在跑；反过来也会让人以为开着其实关着。
+  function syncHotInterval() {
+    const sel = document.getElementById('hotInterval');
+    if (!sel) return;
+    for (const o of [...sel.querySelectorAll('option[data-tmp]')]) o.remove();
+    const vals = [...new Set(hotSources.filter(s => s.enabled !== false).map(s => Number(s.intervalSec) || 0))];
+    if (!vals.length) { sel.value = '0'; return; }
+    if (vals.length > 1) {
+      const o = document.createElement('option');
+      o.value = ''; o.dataset.tmp = '1'; o.textContent = '各来源不同';
+      o.selected = true;
+      sel.appendChild(o);
+      return;
+    }
+    const v = String(vals[0]);
+    if (![...sel.options].some(o => o.value === v)) {
+      const o = document.createElement('option');
+      o.value = v; o.dataset.tmp = '1';
+      o.textContent = Number(v) <= 0 ? '不自动' : '每 ' + (Number(v) / 3600) + ' 小时';
+      sel.appendChild(o);
+    }
+    sel.value = v;
   }
 
   async function updateSource(id, patch) {
@@ -2006,8 +2062,9 @@
       });
       const d = await r.json();
       if (!d.ok && d.errors && d.errors.length) {
+        // 失败原因里会带上**对方网页的标题**，那是外部内容，不能当 HTML 塞进来
         const why = d.errors.map(e => (e.error || '') + (e.title ? '（' + e.title + '）' : '')).join('\n');
-        hotLog.innerHTML = '<b>拉取失败</b>\n' + why.replace(/\n/g, '<br>');
+        hotLog.textContent = '拉取失败\n' + why;
         toast('拉取失败：' + why.split('\n')[0], 'err');
       } else {
         const parts = ['存入 <b>' + (d.saved || []).length + '</b> 篇'];
@@ -2044,18 +2101,27 @@
     await loadSources(true);
   });
 
-  document.getElementById('hotInterval').addEventListener('change', (ev) => {
+  document.getElementById('hotInterval').addEventListener('change', async (ev) => {
     const sec = Number(ev.target.value) || 0;
     // 间隔对所有来源统一设置（每个来源也可以单独调，这里给个全局默认值）
-    Promise.all(hotSources.filter(s => s.enabled !== false).map(s =>
-      fetch('/api/sources/' + s.id, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ intervalSec: sec })
-      })
-    )).then(() => {
-      hotLog.textContent = sec ? '已设置：每 ' + (sec / 3600) + ' 小时自动拉取' : '已关闭自动拉取';
-    }).catch(e => { hotLog.textContent = '设置失败：' + e.message; });
+    const ids = hotSources.filter(s => s.enabled !== false).map(s => s.id);
+    if (!ids.length) { toast('没有启用的来源', 'err'); return; }
+    let failed = 0;
+    await Promise.all(ids.map(async (id) => {
+      try {
+        const r = await fetch('/api/sources/' + id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ intervalSec: sec })
+        });
+        if (!r.ok) failed++;
+      } catch { failed++; }
+    }));
+    const label = sec ? '每 ' + (sec / 3600) + ' 小时自动拉取' : '已关闭自动拉取';
+    if (failed) toast(failed + ' 个来源设置失败（其余已生效）', 'err');
+    else toast(label, 'ok');
+    hotLog.textContent = failed ? (failed + ' 个来源设置失败') : ('已设置：' + label);
+    await loadSources(true);
   });
 
   // ---------- 启动 ----------

@@ -15,7 +15,7 @@ const { createProvider } = require('./providers');
 const { zipStore, zipRead } = require('./zip');
 const { attachWebSocket } = require('./extws');
 
-const VERSION = '1.5.1';
+const VERSION = '1.5.2';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
@@ -267,6 +267,23 @@ function restartHotlistTimer() {
   hotlist.setConfig(hotlistConfig());
 }
 
+// 发出去的偏好里必须抹掉凭证：热榜 Cookie 是能登录你账号的东西，
+// 而 /api/prefs 是局域网内谁都能 GET 的（SSE 的 prefs 广播同理）。
+// 前端要知道"配没配"看 /api/sources 的 hasCookie 就够，不需要拿到原文。
+function publicPrefs(prefs) {
+  const out = Object.assign({}, prefs);
+  const hs = out.hotlist && out.hotlist.sources;
+  if (hs && typeof hs === 'object') {
+    const m = {};
+    for (const k of Object.keys(hs)) {
+      const c = hs[k] || {};
+      m[k] = { enabled: c.enabled !== false, limit: c.limit, intervalSec: c.intervalSec };
+    }
+    out.hotlist = { sources: m };
+  }
+  return out;
+}
+
 function syncConfig() {
   const p = loadPrefsRaw();
   const s = p.sync || {};
@@ -460,6 +477,20 @@ function pageTitle(html) {
   return m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 300);
 }
 
+// 存档页里保留着原站自己的 JS，而阅读 iframe 是 allow-same-origin + allow-scripts ——
+// 也就是说被收藏页面里的脚本跟我们**同源**，能直接 fetch('/api/pages/…', {method:'DELETE'}) 把库清空。
+// 这里注入一条很窄的 CSP：脚本照旧能跑（不少页面靠它渲染），但不许发网络请求、不许提交表单。
+// 存档本来就该是"死"的，顺带也堵住了把库里内容往外传的路。只限制 connect/form，
+// 图片、样式、字体不受影响，所以不会变成裂图。
+const PAGE_CSP = "connect-src 'none'; form-action 'none'";
+function injectPageCsp(html) {
+  const s = String(html);
+  if (/http-equiv=["']?Content-Security-Policy/i.test(s)) return s; // 原页自己声明过就不插手
+  const meta = '<meta http-equiv="Content-Security-Policy" content="' + PAGE_CSP + '">';
+  if (/<head[^>]*>/i.test(s)) return s.replace(/<head([^>]*)>/i, (mm, a) => '<head' + a + '>' + meta);
+  return meta + s;
+}
+
 // 落盘 + 建索引 + 广播 + 触发同步。浏览器扩展上传、手机端按链接抓取，两条路都走这里，
 // 保证存出来的数据格式完全一致（同步/WebDAV/离线缓存都依赖这一点）。
 function persistPage(payload, opts) {
@@ -491,10 +522,12 @@ function persistPage(payload, opts) {
   return meta;
 }
 
-function sendFile(res, filepath, type) {
+// 发文件。extraHeaders 用来带 Content-Disposition —— 以前这个参数没被接收，
+// 「导出 .html」的下载文件名/后缀全丢了，存下来是个没有扩展名的文件。
+function sendFile(res, filepath, type, extraHeaders) {
   fs.readFile(filepath, (err, data) => {
     if (err) { send(res, 404, 'not found'); return; }
-    send(res, 200, data, { 'Content-Type': type });
+    send(res, 200, data, Object.assign({ 'Content-Type': type }, extraHeaders || {}));
   });
 }
 
@@ -658,16 +691,27 @@ const server = http.createServer((req, res) => {
   // 改某个来源的配置（开关/条数/间隔/Cookie）
   const hotCfg = p.match(/^\/api\/sources\/([\w-]+)$/);
   if (req.method === 'PUT' && hotCfg) {
+    if (!HOT_SOURCES.some(s => s.id === hotCfg[1])) {
+      send(res, 404, JSON.stringify({ ok: false, error: '没有这个热榜来源' }), { 'Content-Type': 'application/json; charset=utf-8' });
+      return;
+    }
     readBody(req, 1024 * 256, (err, buf) => {
       if (err) { send(res, 413, JSON.stringify({ error: '请求体太大' }), { 'Content-Type': 'application/json' }); return; }
       let payload = {};
       try { payload = JSON.parse(buf.toString('utf8') || '{}'); } catch { payload = {}; }
       const cur = hotlistConfig();
       const c = cur.sources[hotCfg[1]] || {};
+      // ⚠️ 没传的字段必须保留原值，不能拿默认值顶上。
+      // 以前 intervalSec 写的是 `Number(payload.intervalSec) || 0`，
+      // 于是「只改条数」或「只存 Cookie」的请求会把自动拉取间隔悄悄清零 —— 用户永远发现不了。
       const next = {
         enabled: typeof payload.enabled === 'boolean' ? payload.enabled : c.enabled,
-        limit: Math.max(1, Math.min(20, Number(payload.limit) || c.limit || 5)),
-        intervalSec: Math.max(0, Math.min(86400 * 7, Number(payload.intervalSec) || 0)),
+        limit: payload.limit === undefined
+          ? (c.limit || 5)
+          : Math.max(1, Math.min(20, Number(payload.limit) || c.limit || 5)),
+        intervalSec: payload.intervalSec === undefined
+          ? (c.intervalSec || 0)
+          : Math.max(0, Math.min(86400 * 7, Number(payload.intervalSec) || 0)),
         cookie: payload.cookie !== undefined ? String(payload.cookie) : (c.cookie || '')
       };
       cur.sources[hotCfg[1]] = next;
@@ -677,11 +721,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 偏好设置（主题/语言，阅读器与桌面端主进程共用）
+// 偏好设置（主题/语言，阅读器与桌面端主进程共用）
   if (req.method === 'GET' && p === '/api/prefs') {
     let prefs = {};
     try { prefs = JSON.parse(fs.readFileSync(PREFS_FILE, 'utf8')); } catch { /* 无文件用默认 */ }
-    send(res, 200, JSON.stringify(prefs), { 'Content-Type': 'application/json; charset=utf-8' });
+    send(res, 200, JSON.stringify(publicPrefs(prefs)), { 'Content-Type': 'application/json; charset=utf-8' });
     return;
   }
   if (req.method === 'PUT' && p === '/api/prefs') {
@@ -762,10 +806,11 @@ const server = http.createServer((req, res) => {
       }
       try { fs.writeFileSync(PREFS_FILE, JSON.stringify(clean, null, 2)); } catch { /* 只读环境忽略 */ }
       syncServerCache = null;
-      send(res, 200, JSON.stringify(Object.assign({}, clean, { syncServer: ensureSyncServer() })), { 'Content-Type': 'application/json; charset=utf-8' });
+      send(res, 200, JSON.stringify(Object.assign({}, publicPrefs(clean), { syncServer: ensureSyncServer() })), { 'Content-Type': 'application/json; charset=utf-8' });
       restartSyncTimer();
       // 广播给其他端：主题/语言/字体等外观设置实时互相同步（不重载页面，只应用）
-      broadcastPrefs(clean);
+      // 注意走 publicPrefs：SSE 是明文的，别把热榜 Cookie 顺带发出去
+      broadcastPrefs(publicPrefs(clean));
     });
     return;
   }
@@ -1213,26 +1258,30 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && p === '/api/search') {
     const q = (url.searchParams.get('q') || '').trim().toLowerCase();
     if (!q) { send(res, 200, '[]', { 'Content-Type': 'application/json; charset=utf-8' }); return; }
-    const list = loadIndex().sort((a, b) => b.savedAt.localeCompare(a.savedAt));
-    const results = [];
-    const strip = (s) => s.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-    for (const meta of list.slice(0, 500)) {
-      let snippet = '';
-      let hit = (meta.title || '').toLowerCase().includes(q) || (meta.url || '').toLowerCase().includes(q);
-      if (!hit) {
-        try {
-          if (meta.size < 30 * 1024 * 1024) {
-            const raw = strip(fs.readFileSync(path.join(DATA_DIR, meta.file), 'utf8'));
+    // 用异步读文件：以前这里是 readFileSync 循环，库一大（热榜天天进来）一次搜索
+    // 就把事件循环堵住好几秒——期间所有端都卡着，连 SSE 心跳都发不出去。
+    (async () => {
+      const list = loadIndex().sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+      const results = [];
+      const strip = (s) => s.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+      for (const meta of list.slice(0, 500)) {
+        let snippet = '';
+        let hit = (meta.title || '').toLowerCase().includes(q) || (meta.url || '').toLowerCase().includes(q);
+        if (!hit && meta.size < 30 * 1024 * 1024) {
+          try {
+            const raw = strip(await fs.promises.readFile(path.join(DATA_DIR, meta.file), 'utf8'));
             const i = raw.toLowerCase().indexOf(q);
             if (i >= 0) { hit = true; snippet = raw.slice(Math.max(0, i - 40), i + 80).trim(); }
-          }
-        } catch { /* 文件损坏/已删则跳过 */ }
+          } catch { /* 文件损坏/已删则跳过 */ }
+        }
+        if (hit) results.push({ id: meta.id, title: meta.title, savedAt: meta.savedAt, platform: meta.platform, snippet });
+        if (results.length >= 50) break;
       }
-      if (hit) results.push({ id: meta.id, title: meta.title, savedAt: meta.savedAt, platform: meta.platform, snippet });
-      if (results.length >= 50) break;
-    }
-    send(res, 200, JSON.stringify(results), { 'Content-Type': 'application/json; charset=utf-8' });
+      send(res, 200, JSON.stringify(results), { 'Content-Type': 'application/json; charset=utf-8' });
+    })().catch((e) => {
+      send(res, 500, JSON.stringify({ error: String((e && e.message) || e) }), { 'Content-Type': 'application/json; charset=utf-8' });
+    });
     return;
   }
 
@@ -1265,6 +1314,7 @@ const server = http.createServer((req, res) => {
         .replace(/(<img[^>]+src\s*=\s*["'])(https?:\/\/[^"']+)(["'])/gi, (mm, a, u, b) => a + proxyBase + encodeURIComponent(u) + b)
         .replace(/(url\(\s*["']?)(https?:\/\/[^)"']+)(["']?\s*\))/gi, (mm, a, u, b) => a + proxyBase + encodeURIComponent(u) + b);
     }
+    html = injectPageCsp(html);
     send(res, 200, html, { 'Content-Type': 'text/html; charset=utf-8' });
     return;
   }

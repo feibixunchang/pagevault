@@ -22,7 +22,7 @@ const { extractArticle, stripNoiseOnly } = require('./htmlish.js');
 const TICK_MS = 60 * 1000;
 
 /** 抓一个 URL 的原始文本（跟随重定向、不压缩） */
-function fetchText(url, headers, timeoutMs, ua) {
+function fetchText(url, headers, timeoutMs, ua, hops) {
   return new Promise((resolve, reject) => {
     let u;
     try { u = new URL(url); } catch { return reject(new Error('网址格式不对')); }
@@ -40,15 +40,18 @@ function fetchText(url, headers, timeoutMs, ua) {
       const code = res.statusCode || 0;
       if (code >= 300 && code < 400 && res.headers.location) {
         res.resume();
+        // 跳转次数上限：站点配错/互相跳时不会无限递归把进程挂死
+        if ((hops || 0) >= 6) return reject(new Error('重定向次数太多'));
         let next;
         try { next = new URL(res.headers.location, u).toString(); } catch { return reject(new Error('重定向地址不对')); }
-        return fetchText(next, headers, timeoutMs).then(resolve, reject);
+        // 带上 ua 和 hops：之前漏了，换过 UA 的请求一跳转就退回默认 UA
+        return fetchText(next, headers, timeoutMs, ua, (hops || 0) + 1).then(resolve, reject);
       }
       if (code >= 400) {
         res.resume();
         // 403 多半是 UA 被判成机器人，换一个 UA 再试一次
         if (code === 403 && (!ua || ua !== UA_ALT)) {
-          return fetchText(url, headers, timeoutMs, UA_ALT).then(resolve, reject);
+          return fetchText(url, headers, timeoutMs, UA_ALT, hops).then(resolve, reject);
         }
         return reject(new Error('对方返回 HTTP ' + code));
       }
@@ -110,6 +113,7 @@ class HotListEngine {
         try { return JSON.parse(j.text); } catch { return null; }
       }
     };
+    // parseList 一定是 Promise（有些来源要异步展开每一条）
     return parseList(source, r.text, ctx);
   }
 
@@ -235,6 +239,19 @@ class HotListEngine {
 
   setConfig(cfg) {
     this._cfg = cfg || { sources: {} };
+    // 给每个开了自动拉取的来源排好下次时间。
+    // 以前 nextDue 初始是 0，_tick 一上来就"到期"——于是客户端/NAS 每重启一次，
+    // 所有来源会被立刻全量拉一遍。现在按"上次拉取 + 间隔"算，重启不会额外拉。
+    const now = Date.now();
+    for (const id of Object.keys(this._cfg.sources || {})) {
+      const c = this._cfg.sources[id] || {};
+      const iv = Number(c.intervalSec) || 0;
+      if (iv <= 0) continue;
+      const st = this.state(id);
+      if (st.nextDue) continue;   // 已经在排期里就别重置，否则每次存偏好都会往后推
+      st.nextDue = st.lastPull ? st.lastPull + iv * 1000 : now + iv * 1000;
+      if (st.nextDue < now) st.nextDue = now + 1000;  // 停机期间错过了，一分钟内补一次
+    }
     const anyTimed = Object.keys(this._cfg.sources || {}).some(id => {
       const c = this._cfg.sources[id];
       return c && c.enabled !== false && Number(c.intervalSec) > 0;
@@ -270,7 +287,6 @@ class HotListEngine {
 
   /** 给前端看的状态 */
   status() {
-    const cfg = (this._cfg && this._cfg.sources) || {};
     return SOURCES.map(s => {
       const c = this._cfgOf(s.id);
       const st = this.state(s.id);

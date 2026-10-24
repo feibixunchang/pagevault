@@ -181,7 +181,8 @@ public class MainActivity extends Activity {
             String id = o.optString("id");
             Api.async("PATCH", "/api/pages/" + id + "/star", null, r -> {
                 if (!r.ok()) {
-                    Toast.makeText(MainActivity.this, R.string.del_fail, Toast.LENGTH_SHORT).show();
+                    // 这里以前复用了 del_fail（"删除失败"），收藏失败却提示删除失败
+                    Toast.makeText(MainActivity.this, R.string.star_fail, Toast.LENGTH_SHORT).show();
                     return;
                 }
                 try {

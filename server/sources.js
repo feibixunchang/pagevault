@@ -93,7 +93,8 @@ const SOURCES = [
     needsCookie: true,
     cookieHint: '浏览器登录知乎后按 F12 → Network → 任意请求 → Request Headers，把整行 cookie 复制过来（只要含 z_c0=… 那段就够）。Cookie 过期了这里也要重新填。',
     // 抽不到正文就不存：宁可少存一篇，也别存一堆空页面
-    requireContent: true,    selectors: ['.Post-RichText', '.RichContent-inner', 'article'],
+    requireContent: true,
+    selectors: ['.Post-RichText', '.RichContent-inner', 'article'],
 
     parse(text) {
       const data = JSON.parse(text);
@@ -117,7 +118,8 @@ const SOURCES = [
     emoji: '🔥',
     desc: '程序员社区的热门主题',
     type: 'json',
-    url: 'https://www.v2ex.com/api/topics/hot.json',    selectors: ['.topic_content', '.ps_container'],
+    url: 'https://www.v2ex.com/api/topics/hot.json',
+    selectors: ['.topic_content', '.ps_container'],
     // 论坛帖子里楼主可能一句话都不写（只发了个标题），那种存下来没意义
     requireContent: true,
 
@@ -139,7 +141,8 @@ const SOURCES = [
     desc: '掘金热门文章',
     type: 'json',
     url: 'https://api.juejin.cn/content_api/v1/content/article_rank?category_id=1&type=hot',
-    headers: { 'Accept': 'application/json', 'Referer': 'https://juejin.cn/' },    selectors: ['.markdown-body', '.article-content', 'article'],
+    headers: { 'Accept': 'application/json', 'Referer': 'https://juejin.cn/' },
+    selectors: ['.markdown-body', '.article-content', 'article'],
 
     parse(text) {
       const data = JSON.parse(text) || {};
@@ -226,12 +229,7 @@ const SOURCES = [
     type: 'json',
     url: 'https://hacker-news.firebaseio.com/v0/topstories.json',
     async: true,
-    // HN 的 topstories 只给 id，要再逐个取 item；这里在服务端展开    selectors: ['.article-content', '.content', 'article'],
-    selectors: ['#paragraph', '.post_content'],
-    selectors: ['#main-content', '.entry-content', 'article'],
-    selectors: ['.about_at', '.contentbox', 'article'],
-    selectors: ['.article-content', '.article-body', 'article'],
-    selectors: ['.detail-content', '.article_content', 'article'],
+    // HN 的 topstories 只给 id，要再逐个取 item —— parse 是异步的（见下）
     selectors: ['.article', '#main-content', 'article'],
 
     async parse(text, ctx) {
@@ -261,13 +259,22 @@ module.exports = {
   SOURCES,
   UA_DESKTOP,
   getSource: (id) => BY_ID.get(id) || null,
-  /** 把某个来源的原始响应解析成条目数组 */
+  /**
+   * 把某个来源的原始响应解析成条目数组。
+   *
+   * ⚠️ 一定返回 Promise：Hacker News 那种「先拿 id 列表、再逐条取详情」的来源，
+   * parse 是 async 的。以前这里直接 `Array.isArray(out)` 判断，拿到的是 Promise
+   * → 永远判定"不是数组" → 返回空列表，HN 这个来源等于从来没工作过。
+   */
   parseList(source, text, ctx) {
+    let out;
     try {
-      const out = source.parse(text, ctx || {});
-      return Array.isArray(out) ? out : [];
+      out = source.parse(text, ctx || {});
     } catch (e) {
-      throw new Error('解析失败：' + (e && e.message ? e.message : e));
+      return Promise.reject(new Error('解析失败：' + (e && e.message ? e.message : e)));
     }
+    return Promise.resolve(out)
+      .then(v => (Array.isArray(v) ? v : []))
+      .catch(e => { throw new Error('解析失败：' + (e && e.message ? e.message : e)); });
   }
 };

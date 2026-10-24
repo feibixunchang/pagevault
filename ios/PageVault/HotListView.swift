@@ -71,7 +71,7 @@ struct HotListView: View {
                                 Text(s.cookieHint)
                                     .pvFont(.caption2)
                                     .foregroundColor(.secondary)
-                                TextField("cookie: z_c0=…", text: Binding(
+                                TextField(s.hasCookie ? "已配置（粘贴新的可替换）" : "cookie: z_c0=…", text: Binding(
                                     get: { cookieDraft[s.id] ?? "" },
                                     set: { cookieDraft[s.id] = $0 }
                                 ))
@@ -121,7 +121,7 @@ struct HotListView: View {
         do {
             sources = try await store.hotSources()
         } catch {
-            message = "读不到来源：\(error.localizedDescription)"
+            say("读不到来源：\(error.localizedDescription)", isError: true)
         }
         loading = false
     }

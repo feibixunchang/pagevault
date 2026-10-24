@@ -1,12 +1,15 @@
 package com.feibixunchang.pagevault;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -21,14 +24,19 @@ import java.util.List;
  * 热榜：从知乎 / V2EX / 掘金 / 少数派… 的榜单把文章抓下来存进库里。
  *
  * 抓取和抽正文都在服务端做，这里只发指令、看结果。
+ * 需要登录态的来源（知乎）在列表里**长按**该行填 Cookie。
  */
 public class HotListActivity extends Activity {
+
+    /** 拉一篇/拉全部要服务端去抓十几篇原文，90 秒的默认读超时根本不够 */
+    private static final int PULL_TIMEOUT_MS = 300000;
+    private static final int PULL_ALL_TIMEOUT_MS = 900000;
 
     private ListView list;
     private TextView status;
     private final List<JSONObject> sources = new ArrayList<>();
+    /** 这次会话里粘过的 Cookie，重新打开弹窗时省得再复制一遍 */
     private String cookieDraft = "";
-    private String cookieSourceId = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,9 +73,11 @@ public class HotListActivity extends Activity {
                 emoji.setText(s.optString("emoji", "📰"));
                 name.setText(s.optString("name", ""));
                 StringBuilder sb = new StringBuilder(s.optString("desc", ""));
-                if (s.optBoolean("needsCookie", false)) {
+                boolean needsCookie = s.optBoolean("needsCookie", false);
+                boolean hasCookie = s.optBoolean("hasCookie", false);
+                if (needsCookie) {
                     sb.append(sb.length() > 0 ? " · " : "");
-                    sb.append(s.optBoolean("hasCookie", false) ? "已配 Cookie" : "需要 Cookie");
+                    sb.append(hasCookie ? "已配 Cookie" : "需要 Cookie（长按这里填写）");
                 }
                 JSONObject last = s.optJSONObject("lastResult");
                 if (last != null) {
@@ -80,11 +90,23 @@ public class HotListActivity extends Activity {
             }
         });
 
-        load();
+        // 长按 = 配置登录态（目前只有知乎需要）。做成弹窗而不是在行里塞输入框：
+        // 列表项是 ListView 复用的，塞个 EditText 会跟着滚动串内容。
+        list.setOnItemLongClickListener((parent, view, position, id) -> {
+            if (position >= sources.size()) return false;
+            JSONObject s = sources.get(position);
+            if (!s.optBoolean("needsCookie", false)) return false;
+            showCookieDialog(s);
+            return true;
+        });
+
+        load(false);
     }
 
-    private void load() {
-        status.setText(R.string.loading);
+    private void load(boolean keepStatus) {
+        // keepStatus：拉取完要保留「存入 3 篇 · 跳过 2 篇」那行结果，
+        // 以前这里无条件先写「正在读取来源…」，结果瞬间被冲掉，用户只看到一句无意义的话
+        if (!keepStatus) status.setText(R.string.loading);
         Api.async("GET", "/api/sources", null, r -> {
             if (!r.ok()) {
                 status.setText(getString(R.string.load_fail, r.error != null ? r.error : ("HTTP " + r.code)));
@@ -94,9 +116,8 @@ public class HotListActivity extends Activity {
                 JSONArray arr = new JSONArray(r.body);
                 sources.clear();
                 for (int i = 0; i < arr.length(); i++) sources.add(arr.getJSONObject(i));
-                list.setAdapter(list.getAdapter());
                 list.invalidateViews();
-                status.setText(getString(R.string.hot_tip));
+                if (!keepStatus) status.setText(getString(R.string.hot_tip));
             } catch (Exception e) {
                 status.setText(e.getMessage() == null ? "" : e.getMessage());
             }
@@ -114,7 +135,7 @@ public class HotListActivity extends Activity {
             status.setText(String.valueOf(e.getMessage()));
             return;
         }
-        Api.async("POST", "/api/sources/" + id + "/pull", payload,
+        Api.async("POST", "/api/sources/" + id + "/pull", payload, PULL_TIMEOUT_MS,
                 r -> {
                     if (!r.ok()) {
                         String why = r.error != null ? r.error : ("HTTP " + r.code);
@@ -124,38 +145,31 @@ public class HotListActivity extends Activity {
                     }
                     try {
                         JSONObject d = new JSONObject(r.body);
-                        int saved = d.getJSONArray("saved").length();
-                        int skipped = d.getJSONArray("skipped").length();
-                        JSONArray errs = d.getJSONArray("errors");
+                        int saved = d.optJSONArray("saved") == null ? 0 : d.getJSONArray("saved").length();
+                        JSONArray skippedArr = d.optJSONArray("skipped");
+                        JSONArray errs = d.optJSONArray("errors");
+                        int skipped = skippedArr == null ? 0 : skippedArr.length();
+                        int errCount = errs == null ? 0 : errs.length();
                         StringBuilder sb = new StringBuilder("存入 " + saved + " 篇");
                         if (skipped > 0) sb.append("，跳过 ").append(skipped).append(" 篇（多半已经收藏过）");
-                        if (errs.length() > 0) {
-                            sb.append("，失败 ").append(errs.length()).append(" 篇");
-                            JSONObject e0 = errs.getJSONObject(0);
-                            String em = e0.optString("error", "");
-                            if (em.length() > 0) sb.append("：").append(em);
+                        if (errCount > 0) {
+                            sb.append("，失败 ").append(errCount).append(" 篇");
+                            String em = errs.getJSONObject(0).optString("error", "");
+                            if (em.length() > 0) sb.append("\n").append(em);
                         }
-                        sb.append("，用时 ").append(d.optInt("durationMs", 0) / 1000).append(" 秒");
+                        sb.append("\n用时 ").append(d.optInt("durationMs", 0) / 1000).append(" 秒");
                         status.setText(sb.toString());
                         Toast.makeText(this, sb.toString(), Toast.LENGTH_LONG).show();
-                        if (errs.length() > 0) {
-                            // 有失败项时把第一条原因单独说清楚
-                            JSONObject e0 = errs.getJSONObject(0);
-                            String em = e0.optString("error", "");
-                            if (em.length() > 0) {
-                                status.setText(status.getText().toString() + "\n" + em);
-                            }
-                        }
                     } catch (Exception e) {
                         status.setText(e.getMessage() == null ? "" : e.getMessage());
                     }
-                    load();
+                    load(true);
                 });
     }
 
     private void pullAll() {
         status.setText(R.string.hot_pulling_all);
-        Api.async("POST", "/api/sources/pull-all", "{}", r -> {
+        Api.async("POST", "/api/sources/pull-all", "{}", PULL_ALL_TIMEOUT_MS, r -> {
             if (!r.ok()) {
                 String why = r.error != null ? r.error : ("HTTP " + r.code);
                 status.setText(getString(R.string.load_fail, why));
@@ -164,17 +178,71 @@ public class HotListActivity extends Activity {
             }
             try {
                 JSONObject d = new JSONObject(r.body);
-                JSONArray results = d.getJSONArray("results");
+                JSONArray results = d.optJSONArray("results");
                 int saved = 0;
-                for (int i = 0; i < results.length(); i++) {
-                    saved += results.getJSONObject(i).getJSONArray("saved").length();
+                int errs = 0;
+                for (int i = 0; results != null && i < results.length(); i++) {
+                    JSONObject one = results.getJSONObject(i);
+                    JSONArray a = one.optJSONArray("saved");
+                    JSONArray b = one.optJSONArray("errors");
+                    if (a != null) saved += a.length();
+                    if (b != null) errs += b.length();
                 }
-                status.setText("全部拉取完成：存入 " + saved + " 篇");
-                Toast.makeText(this, status.getText(), Toast.LENGTH_LONG).show();
+                String msg = "全部拉取完成：存入 " + saved + " 篇" + (errs > 0 ? "，失败 " + errs + " 篇" : "");
+                status.setText(msg);
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
             } catch (Exception e) {
                 status.setText(e.getMessage() == null ? "" : e.getMessage());
             }
-            load();
+            load(true);
+        });
+    }
+
+    /** 填/改/清 Cookie。留空保存 = 清除。 */
+    private void showCookieDialog(final JSONObject s) {
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        input.setHint("z_c0=…");
+        input.setText(cookieDraft);
+        input.setMinLines(3);
+        input.setSingleLine(false);
+
+        String hint = s.optString("cookieHint", "");
+        if (s.optBoolean("hasCookie", false)) {
+            hint = "已配置 Cookie（留空保存 = 清除，换新的就整行重贴）。\n" + hint;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(s.optString("name", "") + " · Cookie")
+                .setMessage(hint)
+                .setView(input)
+                .setNegativeButton(R.string.add_cancel, null)
+                .setPositiveButton(R.string.cookie_save, (d, w) -> saveCookie(s, input.getText().toString().trim()))
+                .show();
+    }
+
+    private void saveCookie(final JSONObject s, final String cookie) {
+        String id = s.optString("id");
+        cookieDraft = cookie;
+        String payload;
+        try {
+            payload = new JSONObject().put("cookie", cookie).toString();
+        } catch (Exception e) {
+            status.setText(String.valueOf(e.getMessage()));
+            return;
+        }
+        Api.async("PUT", "/api/sources/" + id, payload, r -> {
+            if (!r.ok()) {
+                String why = r.error != null ? r.error : ("HTTP " + r.code);
+                status.setText(getString(R.string.cookie_fail, why));
+                Toast.makeText(this, getString(R.string.cookie_fail, why), Toast.LENGTH_LONG).show();
+                return;
+            }
+            String msg = cookie.isEmpty()
+                    ? getString(R.string.cookie_cleared)
+                    : getString(R.string.cookie_saved, s.optString("name", ""));
+            status.setText(msg);
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+            load(true);
         });
     }
 }

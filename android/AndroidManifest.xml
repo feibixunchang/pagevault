@@ -39,7 +39,15 @@
 
         <activity
             android:name=".AddUrlActivity"
-            android:exported="false"
-            android:windowSoftInputMode="stateAlwaysHidden" />
+            android:exported="true"
+            android:windowSoftInputMode="stateAlwaysHidden">
+            <!-- 微信/浏览器里「分享 → 网页收藏」：把链接直接丢进来保存。
+                 没有这条，安卓端就只能靠手抄链接，是手机端最不顺的一环。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

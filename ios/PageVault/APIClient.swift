@@ -162,8 +162,11 @@ final class APIClient {
         if let c = cookie, !c.isEmpty { body["cookie"] = c }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let data = try await send(req)
+        // 解不出来要说"听不懂"，不能装作拉取成功 0 篇
         return (try? JSONDecoder().decode(HotPullResult.self, from: data))
-            ?? HotPullResult(ok: false, saved: [], skipped: [], errors: [], durationMs: 0)
+            ?? HotPullResult(ok: false, saved: [], skipped: [],
+                             errors: [HotErrorItem(title: nil, error: "服务端返回的数据看不懂，可能版本不匹配")],
+                             durationMs: 0)
     }
 
     func pullAllHotSources() async throws -> HotPullAllResult {

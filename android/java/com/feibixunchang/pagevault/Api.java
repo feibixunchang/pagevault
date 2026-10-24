@@ -56,10 +56,21 @@ public final class Api {
     /** 后台线程里跑请求，回调切回主线程。 */
     public static void async(final String method, final String path, final String body,
                              final Callback cb) {
+        async(method, path, body, 90000, cb);
+    }
+
+    /**
+     * 同上，但可以指定读超时。
+     *
+     * 默认 90 秒对普通接口够用，可「拉热榜」这种要服务端去抓十几篇原文的接口远远不够：
+     * 超时后 HTTP 连接被掐断，界面报「加载失败」，其实服务端已经存好了 —— 纯误报。
+     */
+    public static void async(final String method, final String path, final String body,
+                             final int readTimeoutMs, final Callback cb) {
         POOL.execute(new Runnable() {
             @Override
             public void run() {
-                final Result r = request(method, path, body);
+                final Result r = request(method, path, body, readTimeoutMs);
                 new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
                     @Override
                     public void run() {
@@ -71,6 +82,10 @@ public final class Api {
     }
 
     public static Result request(String method, String path, String body) {
+        return request(method, path, body, 90000);
+    }
+
+    public static Result request(String method, String path, String body, int readTimeoutMs) {
         HttpURLConnection conn = null;
         try {
             String base = appContext != null ? Prefs.serverUrl(appContext) : Api.DEFAULT_SERVER;
@@ -79,7 +94,7 @@ public final class Api {
             conn = (HttpURLConnection) u.openConnection();
             conn.setRequestMethod(method);
             conn.setConnectTimeout(8000);
-            conn.setReadTimeout(90000);
+            conn.setReadTimeout(readTimeoutMs);
             conn.setRequestProperty("Accept", "application/json");
             if (body != null) {
                 conn.setDoOutput(true);
