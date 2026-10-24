@@ -26,9 +26,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$dest = Join-Path $env:LOCALAPPDATA 'Programs\WebVault';" ^
   "Write-Host ('[i] 安装到: ' + $dest);" ^
   "Get-Process WebVault -ErrorAction SilentlyContinue | Stop-Process -Force;" ^
+  "for ($i=0; $i -lt 20; $i++) { if (-not (Get-Process WebVault -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 300 };" ^
+  "Start-Sleep -Milliseconds 500;" ^
   "New-Item -ItemType Directory -Force -Path $dest | Out-Null;" ^
-  "robocopy $src $dest /MIR /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null;" ^
-  "if ($LASTEXITCODE -ge 8) { Write-Host '[x] 复制文件失败'; exit 1 }" ^
+  "robocopy $src $dest /MIR /R:3 /W:1 /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null;" ^
+  "if ($LASTEXITCODE -ge 8) { Write-Host '[x] 复制文件失败（可能有另一个实例还在运行，全部退出后再试一次）'; exit 1 }" ^
   "$shell = New-Object -ComObject WScript.Shell;" ^
   "$desktop = [Environment]::GetFolderPath('Desktop');" ^
   "$lnk1 = $shell.CreateShortcut((Join-Path $desktop '网页收藏.lnk'));" ^
