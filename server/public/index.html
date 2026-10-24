@@ -293,6 +293,16 @@
   .feedRow button.pull:disabled { opacity:.5; cursor:default; }
   .feedRow button.del { color:var(--muted); }
 
+  /* ---------- 「每次拉几篇」：可自由输入，不用固定下拉 ---------- */
+  .limitBox { display:flex; align-items:center; gap:4px; flex:0 0 auto; }
+  .limitBox input { width:52px; padding:4px 6px; font-size:12px; text-align:center;
+    border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); }
+  .limitBox input:focus { outline:none; border-color:var(--accent); }
+  .limitBox span { font-size:11px; color:var(--muted); white-space:nowrap; }
+  .dupTag { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:5px;
+    font-size:10px; background:var(--accent-bg); color:var(--accent); border:1px solid var(--accent); }
+  .dupTag button { border:none; background:none; color:inherit; cursor:pointer; font-size:10px; padding:0 0 0 4px; }
+
   /* ---------- 统一的操作提示（浮在屏幕上，不被面板里的刷新冲掉） ---------- */
   #toast { position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(8px);
     z-index:300; display:none; max-width:min(520px, 84vw); padding:10px 16px; border-radius:10px;
@@ -1906,6 +1916,61 @@
   const feedUrlInput = document.getElementById('feedUrl');
   let feeds = [];
 
+  /**
+   * 「每次拉几篇」的输入框：可以直接打字改成任意数字（1~50）。
+   *
+   * 以前是个固定下拉（3/5/8/10/15），用户想拉 20 篇或 30 篇就得改代码，
+   * 现在改成输入框 + 几个快捷按钮，输入框失焦/回车就保存。
+   */
+  function makeLimitBox(current, onSave) {
+    const box = document.createElement('div');
+    box.className = 'limitBox';
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.min = '1';
+    inp.max = '50';
+    inp.step = '1';
+    inp.value = String(current || 10);
+    inp.title = '每次拉多少篇（1~50）';
+    const unit = document.createElement('span');
+    unit.textContent = '篇';
+    box.appendChild(inp);
+    box.appendChild(unit);
+
+    const quick = document.createElement('select');
+    quick.title = '快捷选择';
+    const cur = Number(current || 10);
+    const opts = [5, 10, 20, 30, 50];
+    const blank = document.createElement('option');
+    blank.value = ''; blank.textContent = '快捷';
+    quick.appendChild(blank);
+    for (const n of opts) {
+      const o = document.createElement('option');
+      o.value = String(n);
+      o.textContent = n + ' 篇';
+      if (n === cur) o.selected = true;
+      quick.appendChild(o);
+    }
+    box.appendChild(quick);
+
+    const commit = async (v) => {
+      const n = Math.max(1, Math.min(50, Math.round(Number(v) || 0)));
+      if (!n) { inp.value = String(cur); return; }
+      inp.value = String(n);
+      await onSave(n);
+    };
+    inp.addEventListener('change', () => commit(inp.value));
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(inp.value); inp.blur(); }
+    });
+    quick.addEventListener('change', () => {
+      if (!quick.value) return;
+      commit(quick.value);
+      quick.value = '';
+    });
+    return box;
+  }
+
   async function loadFeeds() {
     try {
       const r = await fetch('/api/feeds');
@@ -1933,6 +1998,15 @@
       nm.className = 'nm';
       const b = document.createElement('b');
       b.textContent = f.title || f.url;
+      // 和内置热榜重复时给个提示：同一个站点被拉两遍，文章虽然会去重，
+      // 但用户看到两个一模一样的源会困惑，也白占一个自动拉取名额。
+      if (f.duplicateOf) {
+        const tag = document.createElement('span');
+        tag.className = 'dupTag';
+        tag.textContent = '与热榜「' + (f.duplicateOf.name || f.duplicateOf.id) + '」重复';
+        tag.title = '热榜里已经有这个站点了，两个都留着也行，文章会自动去重';
+        b.appendChild(tag);
+      }
       nm.appendChild(b);
       const sub = document.createElement('span');
       sub.textContent = f.url;
@@ -1940,23 +2014,34 @@
       nm.appendChild(sub);
       row.appendChild(nm);
 
-      const sel = document.createElement('select');
-      for (const n of [3, 5, 8, 10, 15]) {
-        const o = document.createElement('option');
-        o.value = String(n);
-        o.textContent = n + ' 篇';
-        if (n === (f.limit || 5)) o.selected = true;
-        sel.appendChild(o);
-      }
-      sel.title = '每次拉多少篇';
-      sel.addEventListener('change', async () => {
+      const box = makeLimitBox(f.limit || 10, async (n) => {
         await fetch('/api/feeds/' + f.id, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ limit: Number(sel.value) })
+          body: JSON.stringify({ limit: n })
         });
-        toast('每次拉 ' + sel.value + ' 篇', 'ok');
+        toast('每次拉 ' + n + ' 篇', 'ok');
       });
-      row.appendChild(sel);
+      row.appendChild(box);
+
+      // 自动拉取间隔：以前订阅根本没有这个开关（intervalSec 存了也没人读），
+      // 现在每个订阅都能单独设，「不自动 / 每小时 / 每 3 小时 …」。
+      const ivSel = document.createElement('select');
+      ivSel.title = '自动拉取间隔';
+      for (const [v, t] of [[0, '不自动'], [3600, '每小时'], [10800, '每 3 小时'], [21600, '每 6 小时'], [43200, '每 12 小时'], [86400, '每天']]) {
+        const o = document.createElement('option');
+        o.value = String(v);
+        o.textContent = t;
+        if (v === (Number(f.intervalSec) || 0)) o.selected = true;
+        ivSel.appendChild(o);
+      }
+      ivSel.addEventListener('change', async () => {
+        await fetch('/api/feeds/' + f.id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ intervalSec: Number(ivSel.value) })
+        });
+        toast(ivSel.selectedIndex === 0 ? '已关闭自动拉取' : '自动拉取：' + ivSel.options[ivSel.selectedIndex].textContent, 'ok');
+      });
+      row.appendChild(ivSel);
 
       const btn = document.createElement('button');
       btn.className = 'pull';
@@ -2022,8 +2107,13 @@
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-        hotLog.textContent = '已添加：' + j.feed.title + '（' + j.items + ' 条）';
-        toast('已订阅 ' + (j.feed.title || url), 'ok');
+        let msg = '已添加：' + j.feed.title + '（' + j.items + ' 条）';
+        if (j.duplicateOf) {
+          msg += '\n注意：热榜里已经有「' + j.duplicateOf.name + '」这个源了，两个都留着也行，文章会自动去重。';
+        }
+        hotLog.textContent = msg;
+        toast('已订阅 ' + (j.feed.title || url) +
+          (j.duplicateOf ? '（与热榜「' + j.duplicateOf.name + '」重复）' : ''), 'ok');
         feedUrlInput.value = '';
         await loadFeeds();
       } catch (e) {
@@ -2054,8 +2144,16 @@
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-        hotLog.textContent = '导入完成：新增 ' + j.added + ' 个订阅，共 ' + j.total + ' 个';
-        toast('导入 ' + j.added + ' 个订阅', 'ok');
+        let msg = '导入完成：新增 ' + j.added + ' 个订阅，共 ' + j.total + ' 个';
+        // 和内置热榜重复的订阅要说出来：用户导的是 RSS 阅读器的全量清单，
+        // 里面往往有一半是热榜里本来就有的源，不提示就会觉得"列表里怎么这么多重复"。
+        if (j.duplicates && j.duplicates.length) {
+          const names = j.duplicates.map(d => (d.feed && d.feed.title) + '（热榜已有「' + (d.builtin && d.builtin.name) + '」）');
+          msg += '\n其中 ' + j.duplicates.length + ' 个和热榜重复：' + names.join('、');
+        }
+        hotLog.textContent = msg;
+        toast('导入 ' + j.added + ' 个订阅' +
+          (j.duplicates && j.duplicates.length ? '（' + j.duplicates.length + ' 个与热榜重复）' : ''), 'ok');
         await loadFeeds();
       } catch (e) {
         hotLog.textContent = '导入失败：' + errText(e);
@@ -2155,21 +2253,11 @@
       nm.appendChild(sub);
       row.appendChild(nm);
 
-      const sel = document.createElement('select');
-      for (const n of [3, 5, 8, 10, 15]) {
-        const o = document.createElement('option');
-        o.value = String(n);
-        o.textContent = n + ' 篇';
-        if (n === (s.limit || 5)) o.selected = true;
-        sel.appendChild(o);
-      }
-      sel.title = '每次拉多少篇';
-      sel.addEventListener('change', async () => {
-        const n = Number(sel.value);
+      const box = makeLimitBox(s.limit || 10, async (n) => {
         const ok = await updateSource(s.id, { limit: n });
         if (ok) toast(s.name + '：每次拉 ' + n + ' 篇', 'ok');
       });
-      row.appendChild(sel);
+      row.appendChild(box);
 
       const btn = document.createElement('button');
       btn.className = 'pull';

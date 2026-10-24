@@ -16,8 +16,9 @@ const { zipStore, zipStoreStream, zipRead } = require('./zip');
 const { attachWebSocket } = require('./extws');
 const { pageTitle, usableTitle, looksLikeGatePage } = require('./titles');
 const { parseFeed, parseOpml } = require('./sources');
+const { urlKey, sameUrl } = require('./urlkey.js');
 
-const VERSION = '1.5.6';
+const VERSION = '1.5.7';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
@@ -232,7 +233,7 @@ const sync = new SyncEngine({
 
 // ---------- 热榜引擎（定时把知乎/V2EX/少数派…的热榜文章抓下来存库） ----------
 const hotlist = new HotListEngine({
-  listUrls: () => new Set(loadIndex().map(m => m.url).filter(Boolean)),
+  listUrls: () => loadIndex().map(m => m.url).filter(Boolean),
   pageTitle: (html, url) => pageTitle(html, url),
   persistPage: (payload, opts) => persistPage(payload, opts),
   // 自定义 RSS 订阅：现造一个"来源"对象，热榜引擎就能照常处理
@@ -261,15 +262,22 @@ function feedList() {
   const p = loadPrefsRaw();
   const h = p.hotlist || {};
   const arr = Array.isArray(h.feeds) ? h.feeds : [];
-  return arr.filter(f => f && f.url).map(f => ({
-    id: String(f.id || feedId(f.url)),
-    url: String(f.url),
-    title: String(f.title || f.url),
-    limit: Math.max(1, Math.min(20, Number(f.limit) || 5)),
-    enabled: f.enabled !== false,
-    intervalSec: Math.max(0, Math.min(86400 * 7, Number(f.intervalSec) || 0)),
-    addedAt: f.addedAt || ''
-  }));
+  return arr.filter(f => f && f.url).map(f => {
+    const builtin = findBuiltinSourceForFeed(f.url);
+    return {
+      id: String(f.id || feedId(f.url)),
+      url: String(f.url),
+      title: String(f.title || f.url),
+      limit: Math.max(1, Math.min(MAX_HOT_LIMIT, Number(f.limit) || DEFAULT_HOT_LIMIT)),
+      enabled: f.enabled !== false,
+      intervalSec: f.intervalSec === undefined
+        ? DEFAULT_FEED_INTERVAL
+        : Math.max(0, Math.min(86400 * 7, Number(f.intervalSec) || 0)),
+      addedAt: f.addedAt || '',
+      // 与内置热榜重复时告诉前端是哪个内置源，用户可以选择停用其中一个
+      duplicateOf: builtin ? { id: builtin.id, name: builtin.name } : null
+    };
+  });
 }
 function feedId(url) {
   return crypto.createHash('sha1').update(String(url)).digest('hex').slice(0, 12);
@@ -281,13 +289,57 @@ function saveFeeds(list) {
   const p = loadPrefsRaw();
   p.hotlist = Object.assign({}, p.hotlist || {}, { feeds: list });
   try { fs.writeFileSync(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ }
+  // 订阅变了要重排定时器：新加的订阅得能自动拉，删掉的不能再拉。
+  restartHotlistTimer();
   return list;
 }
 /** 订阅 id 统一用 'feed:' 前缀，避免和内置来源重名 */
 const feedSourceId = (id) => 'feed:' + id;
 const feedIdFromSource = (sid) => String(sid || '').replace(/^feed:/, '');
 
-/** 热榜配置存在 prefs.json 的 hotlist.sources 里 */
+/**
+ * 找一个订阅是不是某个内置热榜源的"同一个源"。
+ *
+ * 内置热榜里的少数派 / IT之家 / 爱范儿 / 阮一峰 / Solidot / 极客公园 用的就是 RSS 地址，
+ * 用户再从 OPML 里导入一遍，等于同一个站点被拉两遍 —— 文章虽然有去重，
+ * 但用户看到的是"两个一模一样的源"，还会各自占一份自动拉取的名额。
+ * 这里返回匹配上的内置源，前端可以提示"这个已经有了"。
+ */
+function findBuiltinSourceForFeed(url) {
+  const target = urlKey(url);
+  const targetHost = (() => {
+    try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; }
+  })();
+  for (const s of HOT_SOURCES) {
+    if (s.type !== 'rss') continue;
+    if (urlKey(s.url) === target) return s;
+    // feedburner 镜像之类的等价域名也算同一个源
+    try {
+      const h = new URL(s.url).hostname.toLowerCase().replace(/^www\./, '');
+      if (h && targetHost && h === targetHost) return s;
+    } catch { /* 忽略 */ }
+  }
+  return null;
+}
+
+/**
+ * 热榜配置存在 prefs.json 的 hotlist.sources 里
+ *
+ * 默认值：
+ * - limit：10 篇（用户要求「每次默认 10 篇」，以前是 5）
+ * - intervalSec：默认 0（不自动拉）。用户可以在界面上开自动拉取，
+ *   开了之后这里读的就是用户设的值。
+ */
+const DEFAULT_HOT_LIMIT = 10;
+const MAX_HOT_LIMIT = 50;
+/**
+ * 默认自动拉取间隔。
+ * 用户要求「默认自动拉取每个 10 篇」——所以默认就该是开着的：
+ * 热榜 6 小时一轮（榜单变化快），RSS 12 小时一轮（订阅更新慢）。
+ * 显式设成 0 的用户仍然保持"不自动"，不会被默认值覆盖。
+ */
+const DEFAULT_HOT_INTERVAL = 6 * 3600;
+const DEFAULT_FEED_INTERVAL = 12 * 3600;
 function hotlistConfig() {
   const p = loadPrefsRaw();
   const h = p.hotlist || {};
@@ -297,9 +349,21 @@ function hotlistConfig() {
     const c = raw[s.id] || {};
     sources[s.id] = {
       enabled: c.enabled !== false,
-      limit: Math.max(1, Math.min(20, Number(c.limit) || 5)),
-      intervalSec: Math.max(0, Math.min(86400 * 7, Number(c.intervalSec) || 0)),
+      limit: Math.max(1, Math.min(MAX_HOT_LIMIT, Number(c.limit) || DEFAULT_HOT_LIMIT)),
+      intervalSec: c.intervalSec === undefined
+        ? DEFAULT_HOT_INTERVAL
+        : Math.max(0, Math.min(86400 * 7, Number(c.intervalSec) || 0)),
       cookie: String(c.cookie || '')
+    };
+  }
+  // RSS 订阅也要进调度表 —— 以前只把内置来源放进去，
+  // 于是「订阅的自动拉取间隔」这个字段存了也永远没人读，订阅永远不会自动拉。
+  for (const f of feedList()) {
+    sources[feedSourceId(f.id)] = {
+      enabled: f.enabled !== false,
+      limit: f.limit,
+      intervalSec: f.intervalSec,
+      cookie: ''
     };
   }
   return { sources };
@@ -307,9 +371,18 @@ function hotlistConfig() {
 
 function saveHotlistConfig(next) {
   const p = loadPrefsRaw();
-  p.hotlist = { sources: next.sources || {} };
+  // ⚠️ 这里以前写成 `p.hotlist = { sources: next.sources || {} }`，
+  // 结果是「改一个来源的 Cookie / 条数」会顺手把 hotlist 下的 feeds（RSS 订阅）整个抹掉 ——
+  // 用户表现为：刚导入的 15 个订阅莫名消失。必须保留其它字段。
+  // 同时要把 'feed:' 前缀的条目剔掉：那只是给调度器用的视图，不是用户配置。
+  const src = {};
+  for (const k of Object.keys(next.sources || {})) {
+    if (k.startsWith('feed:')) continue;
+    src[k] = next.sources[k];
+  }
+  p.hotlist = Object.assign({}, p.hotlist || {}, { sources: src });
   try { fs.writeFileSync(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ }
-  hotlist.setConfig(next);
+  hotlist.setConfig(hotlistConfig());
   return next;
 }
 
@@ -525,6 +598,21 @@ function friendlyFetchError(e) {
 // （这里保留一个薄封装，热榜抓取通过 hooks.pageTitle 复用它）
 
 /**
+ * 在库里找同一个 URL 的收藏（按归一化后的 key 比）。
+ * 手动保存时用来判重：同一个链接带不同的追踪参数 / 末尾斜杠 / www 前缀，
+ * 归一化之后是同一篇，不该存两份。
+ */
+function findPageByUrl(url) {
+  const key = urlKey(url);
+  if (!key) return null;
+  const list = loadIndex();
+  for (const m of list) {
+    if (m && m.url && urlKey(m.url) === key) return m;
+  }
+  return null;
+}
+
+/**
  * 定这条收藏的标题：调用方给的能用就用，否则从 HTML 里挖，再不行退回网址。
  * 退回网址而不是"Untitled"：列表里显示一串链接，至少点进去能看出来源，
  * 用户能判断要不要留；"Untitled" 是完全无信息。
@@ -607,6 +695,11 @@ function persistPage(payload, opts) {
   const list = loadIndex();
   list.push(meta);
   saveIndex(list);
+  // 库里多了新文章 → 热榜的去重集合要失效重建，
+  // 否则扩展刚保存的那篇，热榜这边还当"没存过"会再存一次。
+  if (typeof hotlist !== 'undefined' && hotlist && hotlist.invalidateKnownUrls) {
+    hotlist.invalidateKnownUrls();
+  }
   if (opts.touchExtension) touchExtension(); // 扩展刚保存过，状态栏立刻显示"已连接"
   broadcastSaved(meta);
   sync.schedule(syncConfig()); // 即时同步给其他端
@@ -798,8 +891,8 @@ const server = http.createServer((req, res) => {
       const next = {
         enabled: typeof payload.enabled === 'boolean' ? payload.enabled : c.enabled,
         limit: payload.limit === undefined
-          ? (c.limit || 5)
-          : Math.max(1, Math.min(20, Number(payload.limit) || c.limit || 5)),
+          ? (c.limit || DEFAULT_HOT_LIMIT)
+          : Math.max(1, Math.min(MAX_HOT_LIMIT, Number(payload.limit) || c.limit || DEFAULT_HOT_LIMIT)),
         intervalSec: payload.intervalSec === undefined
           ? (c.intervalSec || 0)
           : Math.max(0, Math.min(86400 * 7, Number(payload.intervalSec) || 0)),
@@ -842,13 +935,17 @@ const server = http.createServer((req, res) => {
           id,
           url,
           title: feedTitle.slice(0, 200),
-          limit: Math.max(1, Math.min(20, Number(payload.limit) || (exist ? exist.limit : 5))),
+          limit: Math.max(1, Math.min(MAX_HOT_LIMIT, Number(payload.limit) || (exist ? exist.limit : DEFAULT_HOT_LIMIT))),
           enabled: true,
-          intervalSec: exist ? exist.intervalSec : 0,
+          intervalSec: exist ? exist.intervalSec : DEFAULT_FEED_INTERVAL,
           addedAt: exist ? exist.addedAt : new Date().toISOString()
         };
         saveFeeds([...(list.filter(f => f.id !== id)), rec]);
-        send(res, 200, JSON.stringify({ ok: true, feed: rec, items: items.length }), { 'Content-Type': 'application/json; charset=utf-8' });
+        const builtin = findBuiltinSourceForFeed(url);
+        send(res, 200, JSON.stringify({
+          ok: true, feed: rec, items: items.length,
+          duplicateOf: builtin ? { id: builtin.id, name: builtin.name } : null
+        }), { 'Content-Type': 'application/json; charset=utf-8' });
       }).catch((e) => {
         send(res, 502, JSON.stringify({ error: friendlyFetchError(e) }), { 'Content-Type': 'application/json; charset=utf-8' });
       });
@@ -869,18 +966,25 @@ const server = http.createServer((req, res) => {
       }
       const list = feedList();
       const added = [];
+      const dupOfBuiltin = [];
       for (const it of items) {
         const id = feedId(it.url);
         if (list.some(f => f.id === id)) continue;
         const rec = {
           id, url: it.url, title: String(it.title || it.url).slice(0, 200),
-          limit: 5, enabled: true, intervalSec: 0, addedAt: new Date().toISOString()
+          limit: DEFAULT_HOT_LIMIT, enabled: true, intervalSec: DEFAULT_FEED_INTERVAL, addedAt: new Date().toISOString()
         };
         list.push(rec);
         added.push(rec);
+        // 记一下哪些和内置热榜重复，前端要提示用户"这个热榜里已经有了"
+        const b = findBuiltinSourceForFeed(it.url);
+        if (b) dupOfBuiltin.push({ feed: { id: rec.id, title: rec.title }, builtin: { id: b.id, name: b.name } });
       }
       saveFeeds(list);
-      send(res, 200, JSON.stringify({ ok: true, added: added.length, total: list.length, feeds: list }), { 'Content-Type': 'application/json; charset=utf-8' });
+      send(res, 200, JSON.stringify({
+        ok: true, added: added.length, total: list.length, feeds: feedList(),
+        duplicates: dupOfBuiltin
+      }), { 'Content-Type': 'application/json; charset=utf-8' });
     });
     return;
   }
@@ -903,7 +1007,7 @@ const server = http.createServer((req, res) => {
         const cur = list.find(f => f.id === id);
         if (!cur) { send(res, 404, JSON.stringify({ error: '没有这个订阅' }), { 'Content-Type': 'application/json' }); return; }
         if (payload.title !== undefined) cur.title = String(payload.title).slice(0, 200);
-        if (payload.limit !== undefined) cur.limit = Math.max(1, Math.min(20, Number(payload.limit) || cur.limit));
+        if (payload.limit !== undefined) cur.limit = Math.max(1, Math.min(MAX_HOT_LIMIT, Number(payload.limit) || cur.limit));
         if (typeof payload.enabled === 'boolean') cur.enabled = payload.enabled;
         if (payload.intervalSec !== undefined) cur.intervalSec = Math.max(0, Math.min(86400 * 7, Number(payload.intervalSec) || 0));
         saveFeeds(list);
@@ -999,7 +1103,7 @@ const server = http.createServer((req, res) => {
             // 同理：patch 里没带的字段保持原值。以前这里 `Number(undefined) || 0`
             // 会把「新加的来源」或「前端没回传的字段」直接清零 —— limit 变 0 篇、
             // 自动拉取被关掉，都是这么来的。
-            limit: c.limit == null ? cur0.limit : Math.max(1, Math.min(20, Number(c.limit) || cur0.limit)),
+            limit: c.limit == null ? cur0.limit : Math.max(1, Math.min(MAX_HOT_LIMIT, Number(c.limit) || cur0.limit)),
             intervalSec: c.intervalSec == null ? cur0.intervalSec
               : Math.max(0, Math.min(86400 * 7, Number(c.intervalSec) || 0)),
             // ⚠️ Cookie 只认 PUT /api/sources/:id 写进来的值。
@@ -1429,6 +1533,15 @@ const server = http.createServer((req, res) => {
           const baseTag = '<base href="' + finalUrl.replace(/"/g, '&quot;') + '">';
           if (/<head[^>]*>/i.test(html)) html = html.replace(/<head([^>]*)>/i, (mm, a) => '<head' + a + '>' + baseTag);
           else html = baseTag + html;
+        }
+        // 同一篇文章存过一次就别再存一份：链接可能带了 utm_source 之类的追踪参数，
+        // 或者末尾多个斜杠、多了 www —— 归一化之后是同一篇。
+        const dup = findPageByUrl(finalUrl);
+        if (dup) {
+          return send(res, 200, JSON.stringify({
+            id: dup.id, title: dup.title, url: dup.url, savedAt: dup.savedAt,
+            size: dup.size, duplicate: true
+          }), { 'Content-Type': 'application/json; charset=utf-8' });
         }
         const meta = persistPage({
           html,

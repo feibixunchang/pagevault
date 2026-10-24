@@ -75,15 +75,28 @@ struct HotListView: View {
                             .pvFont(.caption)
                             .disabled(!busy.isEmpty)
                             Spacer()
-                            Menu {
-                                ForEach([3, 5, 8, 10, 15], id: \.self) { n in
-                                    Button("\(n) 篇") { setLimit(s, n) }
-                                }
-                            } label: {
-                                Text("每次 \(s.limit) 篇")
-                                    .pvFont(.caption)
-                                    .foregroundColor(.accentColor)
+                            limitPicker(s)
+                        }
+
+                        // 自动拉取间隔：以前手机上根本没这个入口，服务端默认也不开
+                        HStack {
+                            Text("自动拉取")
+                                .pvFont(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Picker("", selection: Binding(
+                                get: { s.intervalSec },
+                                set: { v in setInterval(s, v) }
+                            )) {
+                                Text("关闭").tag(0)
+                                Text("每小时").tag(3600)
+                                Text("每 3 小时").tag(10800)
+                                Text("每 6 小时").tag(21600)
+                                Text("每 12 小时").tag(43200)
+                                Text("每天").tag(86400)
                             }
+                            .labelsHidden()
+                            .pvFont(.caption)
                             .disabled(!busy.isEmpty)
                         }
 
@@ -224,6 +237,45 @@ struct HotListView: View {
         }
     }
 
+    /// 改「自动拉取间隔」
+    private func setInterval(_ s: HotSource, _ sec: Int) {
+        Task {
+            let ok = await store.saveHotSourceConfig(s.id, intervalSec: sec)
+            if ok {
+                say(sec <= 0 ? "\(s.name)：已关闭自动拉取"
+                            : "\(s.name)：每 \(sec / 3600) 小时自动拉一次")
+            } else {
+                say("自动拉取间隔没保存上：连不上服务端", isError: true)
+            }
+            await load()
+        }
+    }
+
+    /// 「每次拉几篇」：自由输入 1~50
+    private func limitPicker(_ s: HotSource) -> some View {
+        HStack(spacing: 4) {
+            Text("每次")
+                .pvFont(.caption)
+                .foregroundColor(.secondary)
+            TextField("10", value: Binding(
+                get: { s.limit },
+                set: { v in
+                    if let i = sources.firstIndex(where: { $0.id == s.id }) {
+                        sources[i].limit = max(1, min(50, v))
+                    }
+                }
+            ), format: .number)
+            .pvFont(.caption)
+            .keyboardType(.numberPad)
+            .multilineTextAlignment(.trailing)
+            .frame(width: 46)
+            Text("篇")
+                .pvFont(.caption)
+                .foregroundColor(.secondary)
+        }
+        .onSubmit { setLimit(s, s.limit) }
+    }
+
     private func saveCookie(_ s: HotSource) {        let c = (cookieDraft[s.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if c.isEmpty {
             say("Cookie 是空的，没保存", isError: true)
@@ -252,12 +304,32 @@ struct HotSource: Identifiable, Decodable {
     let cookieHint: String
     let hasCookie: Bool
     var limit: Int
-    let intervalSec: Int
+    var intervalSec: Int
     /// 缺失时按「启用」处理：老服务端不返回这个字段
     var enabled: Bool?
     let lastResult: HotLastResult?
 
     var isOn: Bool { enabled != false }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        emoji = (try? c.decode(String.self, forKey: .emoji)) ?? "📰"
+        desc = (try? c.decode(String.self, forKey: .desc)) ?? ""
+        needsCookie = (try? c.decode(Bool.self, forKey: .needsCookie)) ?? false
+        cookieHint = (try? c.decode(String.self, forKey: .cookieHint)) ?? ""
+        hasCookie = (try? c.decode(Bool.self, forKey: .hasCookie)) ?? false
+        limit = (try? c.decode(Int.self, forKey: .limit)) ?? 10
+        intervalSec = (try? c.decode(Int.self, forKey: .intervalSec)) ?? 0
+        enabled = try? c.decode(Bool.self, forKey: .enabled)
+        lastResult = try? c.decode(HotLastResult.self, forKey: .lastResult)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, emoji, desc, needsCookie, cookieHint, hasCookie
+        case limit, intervalSec, enabled, lastResult
+    }
 
     struct HotLastResult: Decodable {
         let ok: Bool?

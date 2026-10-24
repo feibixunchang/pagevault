@@ -9,6 +9,7 @@ struct RootView: View {
     @State private var showSettings = false
     @State private var showAdd = false
     @State private var showHot = false
+    @State private var showFeeds = false
     @State private var addPrefillURL = ""
     @State private var addAutoSave = false
 
@@ -57,6 +58,14 @@ struct RootView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
+                        showFeeds = true
+                    } label: {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                    }
+                    .accessibilityLabel("RSS 订阅")
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
                         showSettings = true
                     } label: {
                         Image(systemName: "gearshape")
@@ -73,6 +82,10 @@ struct RootView: View {
             }
             .sheet(isPresented: $showHot) {
                 HotListView()
+                    .environmentObject(store)
+            }
+            .sheet(isPresented: $showFeeds) {
+                FeedsView()
                     .environmentObject(store)
             }
             .task {

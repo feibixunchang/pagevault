@@ -13,6 +13,7 @@
 const http = require('http');
 const https = require('https');
 const { SOURCES, getSource, parseList, UA_DESKTOP } = require('./sources.js');
+const { urlKey } = require('./urlkey.js');
 
 // 备选 UA：有些站点的 WAF 会把「完整 Chrome UA 但没有 client hints」的请求判成机器人
 // （阮一峰就是：长 UA 403，短 UA 200）。403 时换一个 UA 再试一次。
@@ -20,6 +21,15 @@ const UA_ALT = 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/126.0 Safari/5
 const { extractArticle, stripNoiseOnly } = require('./htmlish.js');
 
 const TICK_MS = 60 * 1000;
+
+/**
+ * 条数上限 / 默认值。
+ * 上限从 20 提到 50：用户明确要求「每次拉几篇」能自由设置，
+ * 20 篇对 RSS 源来说太少（一个源一天就几十篇）。
+ * 默认从 5 提到 10。
+ */
+const MAX_LIMIT = 50;
+const DEFAULT_LIMIT = 10;
 
 /** 抓一个 URL 的原始文本（跟随重定向、不压缩） */
 function fetchText(url, headers, timeoutMs, ua, hops) {
@@ -88,6 +98,31 @@ class HotListEngine {
     return this.states.get(id);
   }
 
+  /**
+   * 已入库文章的归一化 URL 集合（整个进程共享一份）。
+   *
+   * 为什么不是每次拉取都重新 listUrls()：
+   * 热榜源和用户订阅的 RSS 会指向同一篇文章（比如少数派的文章），
+   * 两次拉取各拿一个新快照 → 各自的"已存过"判断都看不到对方刚存的那篇 → 重复入库。
+   * 共享一份 + 保存后立刻回写，才能真正做到"同一篇文章只入库一次"。
+   */
+  _knownUrls() {
+    if (!this._known) {
+      this._known = new Set();
+      const urls = this.hooks.listUrls ? this.hooks.listUrls() : [];
+      for (const u of urls || []) {
+        const k = urlKey(u);
+        if (k) this._known.add(k);
+      }
+    }
+    return this._known;
+  }
+
+  /** 库里有新东西时（扩展保存 / 其它端同步进来）刷新一次去重集合 */
+  invalidateKnownUrls() {
+    this._known = null;
+  }
+
   /** 拉一个来源的榜单（只解析，不存） */
   async fetchList(source, cfg) {
     const headers = Object.assign({}, source.headers || {});
@@ -139,20 +174,32 @@ class HotListEngine {
       // ⚠️ 必须往下传给 _saveOne —— 抓原文也要它，知乎对未登录请求一律 403。
       const useCookie = String((cfg.cookie || '')).trim();
       const items = await this.fetchList(source, cfg);
-      result.items = items.slice(0, 50);
-      const limit = Math.max(1, Math.min(20, Number(o.limit) || this._cfgOf(sourceId).limit || 5));
-      const known = this.hooks.listUrls ? this.hooks.listUrls() : new Set();
+      result.items = items.slice(0, 80);
+      const limit = Math.max(1, Math.min(MAX_LIMIT, Number(o.limit) || this._cfgOf(sourceId).limit || DEFAULT_LIMIT));
+      // ⚠️ 去重必须用「归一化 URL」，而且集合要**在本进程内复用**：
+      // 以前每次拉取都重新 listUrls() 拿一个快照，
+      // 于是「热榜里的少数派」和「用户自己订阅的少数派」在同一个进程里各存一份 ——
+      // 同一篇文章出现两次。更糟的是并发 worker 同时保存时，
+      // 两边都在快照里查到"没存过"，于是同一篇真的入库两次。
+      // 现在：known 一次取全，整个进程共享；每存成功一篇立刻把它的 URL 写进去。
+      const known = this._knownUrls();
 
       // 只处理前 limit 条「还没存过」的（已存过的直接算跳过）
       const todo = [];
+      const seenInBatch = new Set();
       for (const item of result.items) {
         if (todo.length >= limit) break;
         if (!item.url) continue;
-        if (known.has(item.url)) { result.skipped.push({ title: item.title, url: item.url, why: '已收藏' }); continue; }
+        const key = urlKey(item.url);
+        if (!key) continue;
+        if (known.has(key)) { result.skipped.push({ title: item.title, url: item.url, why: '已收藏' }); continue; }
+        // 同一批里出现两次同样的文章（feed 里前一条和后一条其实是同一篇）也只留一条
+        if (seenInBatch.has(key)) { result.skipped.push({ title: item.title, url: item.url, why: '重复' }); continue; }
+        seenInBatch.add(key);
         todo.push(item);
       }
 
-      // 并发抓（串行的话 5 篇要一分多钟，太慢了）
+      // 并发抓（串行的话 10 篇要两分多钟，太慢了）
       const CONCURRENCY = 4;
       let cursor = 0;
       const worker = async () => {
@@ -160,7 +207,12 @@ class HotListEngine {
           const item = todo[cursor++];
           try {
             const saved = await this._saveOne(source, item, useCookie);
-            if (saved) result.saved.push(saved);
+            if (saved) {
+              result.saved.push(saved);
+              // 立刻登记，避免并发 worker 把同一篇又存一遍
+              const k = urlKey(saved.url || item.url);
+              if (k) known.add(k);
+            }
             else result.skipped.push({ title: item.title, url: item.url, why: '抓取失败' });
           } catch (e) {
             if (e && e.skip) {
@@ -260,7 +312,7 @@ class HotListEngine {
     const c = all[sourceId] || {};
     return {
       enabled: c.enabled !== false,
-      limit: Number(c.limit) || 5,
+      limit: Math.max(1, Math.min(MAX_LIMIT, Number(c.limit) || DEFAULT_LIMIT)),
       intervalSec: Number(c.intervalSec) || 0,
       cookie: c.cookie || ''
     };

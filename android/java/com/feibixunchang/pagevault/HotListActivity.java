@@ -114,7 +114,8 @@ public class HotListActivity extends Activity {
         final boolean needsCookie = s.optBoolean("needsCookie", false);
         final List<String> items = new ArrayList<>();
         items.add(on ? "停用这个来源" : "启用这个来源");
-        items.add("每次拉多少篇（当前 " + s.optInt("limit", 5) + " 篇）");
+        items.add("每次拉多少篇（当前 " + s.optInt("limit", 10) + " 篇）");
+        items.add("自动拉取间隔（当前 " + intervalLabel(s.optInt("intervalSec", 0)) + "）");
         if (needsCookie) items.add(s.optBoolean("hasCookie", false) ? "更换 Cookie" : "填写 Cookie");
 
         new AlertDialog.Builder(this)
@@ -122,23 +123,61 @@ public class HotListActivity extends Activity {
                 .setItems(items.toArray(new String[0]), (d, which) -> {
                     if (which == 0) putSource(s, "enabled", !on);
                     else if (which == 1) showLimitDialog(s);
+                    else if (which == 2) showIntervalDialog(s);
                     else showCookieDialog(s);
                 })
                 .setNegativeButton(R.string.add_cancel, null)
                 .show();
     }
 
+    /** 间隔的可读说法 */
+    private static String intervalLabel(int sec) {
+        if (sec <= 0) return "不自动";
+        if (sec % 86400 == 0) return "每 " + (sec / 86400) + " 天";
+        return "每 " + (sec / 3600) + " 小时";
+    }
+
+    /**
+     * 「每次拉几篇」：自由输入 1~50。
+     * 以前是固定几个选项（3/5/8/10/15），想拉 20 篇做不到。
+     */
     private void showLimitDialog(final JSONObject s) {
-        final int[] opts = {3, 5, 8, 10, 15};
-        int cur = s.optInt("limit", 5);
-        int idx = 1;
-        for (int i = 0; i < opts.length; i++) if (opts[i] == cur) idx = i;
-        String[] labels = new String[opts.length];
-        for (int i = 0; i < opts.length; i++) labels[i] = opts[i] + " 篇";
+        final EditText input = new EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(s.optInt("limit", 10)));
+        input.setSelectAllOnFocus(true);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        input.setPadding(pad, pad, pad, pad);
         new AlertDialog.Builder(this)
                 .setTitle(s.optString("name", "") + " · 每次拉几篇")
+                .setView(input)
+                .setPositiveButton(R.string.add_save, (d, which) -> {
+                    int n;
+                    try {
+                        n = Integer.parseInt(input.getText().toString().trim());
+                    } catch (Exception e) {
+                        n = 10;
+                    }
+                    if (n < 1) n = 1;
+                    if (n > 50) n = 50;
+                    putSource(s, "limit", n);
+                })
+                .setNegativeButton(R.string.add_cancel, null)
+                .show();
+    }
+
+    /** 「自动拉取间隔」 */
+    private void showIntervalDialog(final JSONObject s) {
+        final int[] opts = {0, 3600, 10800, 21600, 43200, 86400};
+        int cur = s.optInt("intervalSec", 0);
+        int idx = 0;
+        for (int i = 0; i < opts.length; i++) if (opts[i] == cur) idx = i;
+        String[] labels = new String[opts.length];
+        for (int i = 0; i < opts.length; i++) labels[i] = intervalLabel(opts[i]);
+        new AlertDialog.Builder(this)
+                .setTitle(s.optString("name", "") + " · 自动拉取间隔")
                 .setSingleChoiceItems(labels, idx, (d, which) -> {
-                    putSource(s, "limit", opts[which]);
+                    putSource(s, "intervalSec", opts[which]);
                     d.dismiss();
                 })
                 .setNegativeButton(R.string.add_cancel, null)
@@ -195,7 +234,7 @@ public class HotListActivity extends Activity {
 
     private void pull(final JSONObject s) {
         String id = s.optString("id");
-        int limit = s.optInt("limit", 5);
+        int limit = s.optInt("limit", 10);
         status.setText(getString(R.string.hot_pulling, s.optString("name", "")));
         String payload;
         try {

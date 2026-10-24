@@ -185,7 +185,8 @@ final class APIClient {
     /// 只提交有值的字段：服务端对缺省字段保持原值，
     /// 所以「切开关」不会顺手把 Cookie 或自动拉取间隔清掉。
     func saveHotSourceConfig(id: String, cookie: String? = nil,
-                             enabled: Bool? = nil, limit: Int? = nil) async throws -> Data {
+                             enabled: Bool? = nil, limit: Int? = nil,
+                             intervalSec: Int? = nil) async throws -> Data {
         guard let url = URL(string: "/api/sources/\(id)", relativeTo: base) else {
             throw APIError(message: "服务端地址无效")
         }
@@ -195,8 +196,91 @@ final class APIClient {
         var body: [String: Any] = [:]
         if let c = cookie { body["cookie"] = c }
         if let e = enabled { body["enabled"] = e }
-        if let l = limit { body["limit"] = max(1, min(20, l)) }
+        if let l = limit { body["limit"] = max(1, min(50, l)) }
+        if let iv = intervalSec { body["intervalSec"] = max(0, min(86400 * 7, iv)) }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         return try await send(req)
+    }
+
+    // MARK: - RSS 订阅
+
+    /// 订阅清单
+    func feeds() async throws -> [Feed] {
+        let data = try await fetch("/api/feeds", method: "GET")
+        struct Reply: Decodable { let feeds: [Feed] }
+        return (try? JSONDecoder().decode(Reply.self, from: data))?.feeds ?? []
+    }
+
+    /// 新增一个订阅（服务端会先真拉一次验证）
+    func addFeed(url feedURL: String, title: String? = nil) async throws -> FeedAddResult {
+        guard let url = URL(string: "/api/feeds", relativeTo: base) else {
+            throw APIError(message: "服务端地址无效")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 60
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: String] = ["url": feedURL]
+        if let t = title, !t.isEmpty { body["title"] = t }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let data = try await send(req)
+        return (try? JSONDecoder().decode(FeedAddResult.self, from: data))
+            ?? FeedAddResult(ok: false, feed: nil, items: 0, error: "服务端返回的数据看不懂")
+    }
+
+    /// 批量导入 OPML
+    func importFeeds(opml: String) async throws -> FeedImportResult {
+        guard let url = URL(string: "/api/feeds/import", relativeTo: base) else {
+            throw APIError(message: "服务端地址无效")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 60
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["opml": opml])
+        let data = try await send(req)
+        return (try? JSONDecoder().decode(FeedImportResult.self, from: data))
+            ?? FeedImportResult(ok: false, added: 0, total: 0, error: "服务端返回的数据看不懂")
+    }
+
+    /// 拉某个订阅的最新文章（存正文）
+    func pullFeed(id: String, limit: Int) async throws -> HotPullResult {
+        guard let url = URL(string: "/api/feeds/\(id)/pull", relativeTo: base) else {
+            throw APIError(message: "服务端地址无效")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 180
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["limit": max(1, min(20, limit))])
+        let data = try await send(req)
+        return (try? JSONDecoder().decode(HotPullResult.self, from: data))
+            ?? HotPullResult(ok: false, saved: [], skipped: [],
+                             errors: [HotErrorItem(title: nil, error: "服务端返回的数据看不懂")],
+                             durationMs: 0)
+    }
+
+    /// 改订阅配置（标题 / 开关 / 每次条数 / 自动拉取间隔）
+    func saveFeedConfig(id: String, title: String? = nil,
+                        enabled: Bool? = nil, limit: Int? = nil,
+                        intervalSec: Int? = nil) async throws -> Data {
+        guard let url = URL(string: "/api/feeds/\(id)", relativeTo: base) else {
+            throw APIError(message: "服务端地址无效")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = [:]
+        if let t = title { body["title"] = t }
+        if let e = enabled { body["enabled"] = e }
+        if let l = limit { body["limit"] = max(1, min(50, l)) }
+        if let iv = intervalSec { body["intervalSec"] = max(0, min(86400 * 7, iv)) }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return try await send(req)
+    }
+
+    /// 删除订阅
+    func deleteFeed(id: String) async throws {
+        _ = try await fetch("/api/feeds/\(id)", method: "DELETE")
     }
 }

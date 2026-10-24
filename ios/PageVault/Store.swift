@@ -296,12 +296,75 @@ final class Store: ObservableObject {
         }
     }
 
-    /// 改某个来源的配置（Cookie / 开关 / 每次条数）
+    /// 改某个来源的配置（Cookie / 开关 / 每次条数 / 自动拉取间隔）
     func saveHotSourceConfig(_ id: String, cookie: String? = nil,
-                             enabled: Bool? = nil, limit: Int? = nil) async -> Bool {
+                             enabled: Bool? = nil, limit: Int? = nil,
+                             intervalSec: Int? = nil) async -> Bool {
         guard let api = api else { return false }
         do {
-            _ = try await api.saveHotSourceConfig(id: id, cookie: cookie, enabled: enabled, limit: limit)
+            _ = try await api.saveHotSourceConfig(id: id, cookie: cookie, enabled: enabled, limit: limit, intervalSec: intervalSec)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - RSS 订阅
+
+    /// 订阅清单
+    func feeds() async throws -> [Feed] {
+        guard let api = api else { throw APIError(message: "服务端地址填得不对，去设置里改一下") }
+        return try await api.feeds()
+    }
+
+    /// 新增订阅
+    func addFeed(url: String) async throws -> FeedAddResult {
+        guard let api = api else {
+            throw APIError(message: "服务端地址填得不对，去设置里改一下")
+        }
+        return try await api.addFeed(url: url)
+    }
+
+    /// 批量导入 OPML
+    func importFeeds(opml: String) async throws -> FeedImportResult {
+        guard let api = api else {
+            throw APIError(message: "服务端地址填得不对，去设置里改一下")
+        }
+        return try await api.importFeeds(opml: opml)
+    }
+
+    /// 拉某个订阅
+    func pullFeed(_ id: String, limit: Int) async -> HotPullResult {
+        guard let api = api else {
+            return HotPullResult(ok: false, saved: [], skipped: [], errors: [], durationMs: 0)
+        }
+        do {
+            return try await api.pullFeed(id: id, limit: limit)
+        } catch {
+            return HotPullResult(ok: false, saved: [], skipped: [],
+                                errors: [HotErrorItem(title: nil, error: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)],
+                                durationMs: 0)
+        }
+    }
+
+    /// 改订阅配置
+    func saveFeedConfig(_ id: String, title: String? = nil,
+                        enabled: Bool? = nil, limit: Int? = nil,
+                        intervalSec: Int? = nil) async -> Bool {
+        guard let api = api else { return false }
+        do {
+            _ = try await api.saveFeedConfig(id: id, title: title, enabled: enabled, limit: limit, intervalSec: intervalSec)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// 删除订阅
+    func deleteFeed(_ id: String) async -> Bool {
+        guard let api = api else { return false }
+        do {
+            try await api.deleteFeed(id: id)
             return true
         } catch {
             return false

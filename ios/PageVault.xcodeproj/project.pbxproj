@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -15,6 +15,7 @@
 		1E94B2A2651A2AB5FF7A4CD4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 541657F72ECA416DCCF6D088 /* RootView.swift */; };
 		226E0500494923F305FD35B6 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67AB346C01716E98EEDBBAF7 /* Models.swift */; };
 		2588DD7E4EC3A934129B0E36 /* AppType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE12F7B25EB09938EA1588E /* AppType.swift */; };
+		36EB68835BBEC15A7C77B9BE /* FeedsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7CB579C28B31C8B8CBD42DC /* FeedsView.swift */; };
 		3D5E893352B5D3F477C43BAB /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29B222E4A6B9A27484CD88F7 /* ReaderView.swift */; };
 		4AC66341798843DE18FF26A3 /* FontCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F6C018D94E4F6287C98049 /* FontCatalog.swift */; };
 		4FA67AD3DCDF8FAC0F3EC29C /* ReaderStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1731058CBF228A11B07E7437 /* ReaderStyle.swift */; };
@@ -45,6 +46,7 @@
 		87F6C018D94E4F6287C98049 /* FontCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontCatalog.swift; sourceTree = "<group>"; };
 		933328C4F1AD43ADB448136F /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		B11FF8EEB3672C515E0519CF /* PageVaultApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageVaultApp.swift; sourceTree = "<group>"; };
+		B7CB579C28B31C8B8CBD42DC /* FeedsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedsView.swift; sourceTree = "<group>"; };
 		B91BA3017214850DFCDC6F2A /* PageVault.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PageVault.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E078898BA61D7880A43C6EFE /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		E8BE4F314C082F2F76E913C3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -59,6 +61,7 @@
 				1CE12F7B25EB09938EA1588E /* AppType.swift */,
 				7695A961041FA6708EE4C540 /* Assets.xcassets */,
 				01BD8E4E6BB2E067D5DD1331 /* Cache.swift */,
+				B7CB579C28B31C8B8CBD42DC /* FeedsView.swift */,
 				87F6C018D94E4F6287C98049 /* FontCatalog.swift */,
 				0E938DCD4037AC9C35ECD4B7 /* HotListView.swift */,
 				E8BE4F314C082F2F76E913C3 /* Info.plist */,
@@ -108,6 +111,8 @@
 			dependencies = (
 			);
 			name = PageVault;
+			packageProductDependencies = (
+			);
 			productName = PageVault;
 			productReference = B91BA3017214850DFCDC6F2A /* PageVault.app */;
 			productType = "com.apple.product-type.application";
@@ -128,7 +133,6 @@
 				};
 			};
 			buildConfigurationList = 3C0118AE8474DBD0ACFF96F5 /* Build configuration list for PBXProject "PageVault" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -136,6 +140,9 @@
 				en,
 			);
 			mainGroup = A4579592DA91942692DD40C3;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D1938C10FBCC150F70336B23 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -164,6 +171,7 @@
 				1CE1404BCBE86BB0A103001B /* AddByURLView.swift in Sources */,
 				2588DD7E4EC3A934129B0E36 /* AppType.swift in Sources */,
 				B779DEE0FD2875A35AABB7AC /* Cache.swift in Sources */,
+				36EB68835BBEC15A7C77B9BE /* FeedsView.swift in Sources */,
 				4AC66341798843DE18FF26A3 /* FontCatalog.swift in Sources */,
 				958E90A6666A08AEFCC8C5CA /* HotListView.swift in Sources */,
 				226E0500494923F305FD35B6 /* Models.swift in Sources */,
@@ -217,7 +225,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = "10506";
+				CURRENT_PROJECT_VERSION = "10507";
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -231,7 +239,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = "1.5.6";
+				MARKETING_VERSION = "1.5.7";
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -320,7 +328,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = "10506";
+				CURRENT_PROJECT_VERSION = "10507";
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -340,7 +348,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = "1.5.6";
+				MARKETING_VERSION = "1.5.7";
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
