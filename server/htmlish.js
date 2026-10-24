@@ -119,7 +119,15 @@ function textOf(el) {
 function linkTextOf(el) {
   if (el.tag === 'a') return textOf(el);
   let s = '';
-  for (const c of el.children) s += (c.tag === '#text' ? c.text : linkTextOf(c));
+  for (const c of el.children) {
+    // ⚠️ 只往下钻元素，**不要**把文本节点算进来。
+    // 这里曾经写成 `c.tag === '#text' ? c.text : linkTextOf(c)`，
+    // 于是每个元素的"链接文字"都等于它自己的全文 → linkRatio 恒为 1.0
+    // → score() 对所有元素返回 0 → 通用正文抽取（不带站点选择器的那条路）
+    // 全线失效。热榜之所以还能用，是因为十个来源都配了 selectors 走另一条分支；
+    // 而「只显示正文」对微信文章直接是空白页，根源就在这一行。
+    if (c.tag !== '#text') s += linkTextOf(c);
+  }
   return s;
 }
 
@@ -303,6 +311,63 @@ function bodyOnly(html) {
 }
 
 /**
+ * 常见站点的正文容器。调用方没传 selectors 时用这份（传了就以传入的为准）。
+ *
+ * 为什么需要这张表：通用打分对结构极端的页面会跑偏，而这几家都有明确的正文容器，
+ * 直接命中更准也更快。表里只放"容器稳定、且能覆盖大多数文章页"的站点，
+ * 不放那些容器经常改版、反而会失手的站。
+ */
+const SITE_SELECTORS = [
+  { host: /(^|\.)mp\.weixin\.qq\.com$/, sels: ['#js_content', '.rich_media_content'] },
+  { host: /(^|\.)zhihu\.com$/, sels: ['.Post-RichText', '.RichContent-inner', 'article'] },
+  { host: /(^|\.)juejin\.cn$/, sels: ['.markdown-body', '.article-content'] },
+  { host: /(^|\.)sspai\.com$/, sels: ['.article-content', '.content'] },
+  { host: /(^|\.)ithome\.com$/, sels: ['#paragraph', '.post_content'] },
+  { host: /(^|\.)v2ex\.com$/, sels: ['.topic_content'] },
+  { host: /(^|\.)csdn\.net$/, sels: ['#content_views', 'article'] },
+  { host: /(^|\.)cnblogs\.com$/, sels: ['#cnblogs_post_body', '.postBody'] },
+  { host: /(^|\.)jianshu\.com$/, sels: ['article'] },
+  { host: /(^|\.)36kr\.com$/, sels: ['.articleDetailContent', 'article'] },
+  { host: /(^|\.)huxiu\.com$/, sels: ['.article-content-wrap', '.article-content'] },
+  { host: /(^|\.)infoq\.cn$/, sels: ['.article-preview', 'article'] },
+  { host: /(^|\.)solidot\.org$/, sels: ['.about_at', '.contentbox'] },
+  { host: /(^|\.)ifanr\.com$/, sels: ['.article-content', '.article-body'] },
+  { host: /(^|\.)geekpark\.net$/, sels: ['.detail-content', '.article_content'] }
+];
+
+function defaultSelectorsFor(url) {
+  if (!url) return null;
+  let host;
+  try { host = new URL(url).hostname.toLowerCase(); } catch { return null; }
+  for (const s of SITE_SELECTORS) if (s.host.test(host)) return s.sels;
+  return null;
+}
+
+/**
+ * 剥掉「内容就是正文、但用 CSS 先藏起来防闪烁」的内联样式。
+ *
+ * 微信最典型：#js_content 上挂着 visibility:hidden; opacity:0，
+ * 靠它自己的 JS 在排版完成后改回来。我们存的是静态快照，
+ * 不剥掉的话「只显示正文」出来的是一整页空白——文字都在，就是看不见。
+ * 只处理这两种属性；display:none 保留（那通常是菜单/弹窗，去掉反而漏出垃圾）。
+ */
+function stripHidingStyles(el) {
+  const st = el.attrs && el.attrs.style;
+  if (typeof st === 'string' && /visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0+)?\s*(?:;|$)/i.test(st)) {
+    const next = st
+      .replace(/visibility\s*:\s*hidden\s*;?/gi, '')
+      .replace(/opacity\s*:\s*0(?:\.0+)?\s*;?/gi, '')
+      .trim();
+    if (next) el.attrs.style = next;
+    else delete el.attrs.style;
+  }
+  if (el.children) for (const c of el.children) stripHidingStyles(c);
+}
+
+const stripTags = (s) => String(s).replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ')
+  .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+
+/**
  * 从整页 HTML 里抽出正文，生成一份干净的"文章页"。
  * @returns {{html:string, textLength:number, title:string}|null} 挑不出正文时返回 null
  */
@@ -314,7 +379,9 @@ function extractArticle(html, opts) {
   const tree = parse(bodyOnly(html));
   stripNoise(tree);
 
-  const found = findContent(tree, o.selectors);
+  // 站点表兜底：调用方没指定就用内置表里的（微信这类容器明确的站，命中率比打分高得多）
+  const selectors = (o.selectors && o.selectors.length) ? o.selectors : defaultSelectorsFor(baseUrl);
+  const found = findContent(tree, selectors);
   if (!found) return null;
 
   // 门槛看**文字长度**，不要看分数：正文里链接多（比如新闻里的外链）会拉低分数，
@@ -322,9 +389,15 @@ function extractArticle(html, opts) {
   const text = (found.text || textOf(found.el)).replace(/\s+/g, ' ').trim();
   if (text.length < 200) return null;
 
+  stripHidingStyles(found.el);
+
   // 把相对地址补成绝对地址，否则图片会裂
   let inner = serialize(found.el);
   inner = absolutize(inner, baseUrl);
+
+  // 正文里已经有一个和标题相同的 h1 就别再加了（微信、知乎都这样，否则阅读页标题出现两遍）
+  const dupH1 = /<h1[^>]*>([\s\S]{0,400}?)<\/h1>/i.exec(inner);
+  const sameHead = !!(dupH1 && stripTags(dupH1[1]) === title);
 
   const doc = '<!DOCTYPE html>\n<html><head><meta charset="utf-8">'
     + (title ? '<title>' + escapeText(title) + '</title>' : '')
@@ -338,7 +411,7 @@ function extractArticle(html, opts) {
     + '.pv-article pre{background:#f4f5f7;padding:12px;border-radius:8px;overflow:auto;}'
     + '.pv-article a{color:#185fa5;word-break:break-all;}'
     + '</style></head><body><div class="pv-article">'
-    + (title ? '<h1>' + escapeText(title) + '</h1>' : '')
+    + (title && !sameHead ? '<h1>' + escapeText(title) + '</h1>' : '')
     + inner
     + '</div></body></html>';
 

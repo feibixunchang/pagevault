@@ -195,7 +195,10 @@ class HotListEngine {
     } catch (e) {
       throw new Error('抓原文失败：' + ((e && e.message) || e));
     }
-    const title = String(item.title || '').trim() || (hooks.pageTitle ? hooks.pageTitle(page.text) : item.url);
+    // 榜单条目自带标题（来自官方接口）就用它的；没有才现从原文里挖。
+    // 传 url 进去是为了让 titles.js 能排掉"标题其实是个网址"这种假标题。
+    const title = String(item.title || '').trim() ||
+      (hooks.pageTitle ? hooks.pageTitle(page.text, page.finalUrl) : item.url);
     let html = null;
     let extracted = false;
     try {

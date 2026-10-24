@@ -14,8 +14,9 @@ const { SyncEngine, extractMeta, ONLINE_WINDOW_MS } = require('./sync');
 const { createProvider } = require('./providers');
 const { zipStore, zipStoreStream, zipRead } = require('./zip');
 const { attachWebSocket } = require('./extws');
+const { pageTitle, usableTitle, looksLikeGatePage } = require('./titles');
 
-const VERSION = '1.5.3';
+const VERSION = '1.5.4';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
@@ -181,7 +182,10 @@ function upsertPageFromPeer(id, html, metaIn) {
   }
   const meta = {
     id,
-    title: String(inc.title || 'Untitled').slice(0, 300),
+    // 所有保存入口的最后一道标题兜底：扩展传上来的 title 偶尔是空的
+    // （SingleFile 抓不到 document.title 时），旧版客户端也可能只传网址。
+    // 这种情况下现从 HTML 里挖一次，总比列表里挂个 "Untitled" 强。
+    title: resolveTitle(inc.title, html, inc.url),
     url: String(inc.url || '').slice(0, 2000),
     savedAt: inc.savedAt || new Date().toISOString(),
     platform: String(inc.platform || 'sync').slice(0, 60),
@@ -228,7 +232,7 @@ const sync = new SyncEngine({
 // ---------- 热榜引擎（定时把知乎/V2EX/少数派…的热榜文章抓下来存库） ----------
 const hotlist = new HotListEngine({
   listUrls: () => new Set(loadIndex().map(m => m.url).filter(Boolean)),
-  pageTitle: (html) => pageTitle(html),
+  pageTitle: (html, url) => pageTitle(html, url),
   persistPage: (payload, opts) => persistPage(payload, opts),
   log,
   onPulled: (r) => {
@@ -471,11 +475,22 @@ function friendlyFetchError(e) {
   return msg || '抓取失败';
 }
 
-function pageTitle(html) {
-  const m = String(html).match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  if (!m) return '';
-  return m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 300);
+// 标题提取搬到 titles.js：微信这类页面 <title> 是空的，得从 og:title / h1 多源兜底。
+// （这里保留一个薄封装，热榜抓取通过 hooks.pageTitle 复用它）
+
+/**
+ * 定这条收藏的标题：调用方给的能用就用，否则从 HTML 里挖，再不行退回网址。
+ * 退回网址而不是"Untitled"：列表里显示一串链接，至少点进去能看出来源，
+ * 用户能判断要不要留；"Untitled" 是完全无信息。
+ */
+function resolveTitle(inputTitle, html, pageUrl) {
+  const t = String(inputTitle || '').trim();
+  if (usableTitle(t, pageUrl)) return t.slice(0, 300);
+  const mined = pageTitle(html || '', pageUrl);
+  if (mined) return mined;
+  return String(pageUrl || '').trim().slice(0, 300) || 'Untitled';
 }
+
 
 // 存档页里保留着原站自己的 JS，而阅读 iframe 是 allow-same-origin + allow-scripts ——
 // 也就是说被收藏页面里的脚本跟我们**同源**，能直接 fetch('/api/pages/…', {method:'DELETE'}) 把库清空。
@@ -1207,6 +1222,17 @@ const server = http.createServer((req, res) => {
         if (!looksHtml) return bad(415, '这个链接不是网页（可能是 PDF、图片或文件下载）');
         let html = decodePage(buffer, contentType);
         if (!html || html.length < 200) return bad(502, '抓到的页面内容为空');
+
+        // 先判标题，顺手用"有没有标题"判断抓回来的是不是拦截页：
+        // 微信风控时会返回「环境异常，完成验证后即可继续访问」，正文空、标题也是垃圾词。
+        // 这种页面存进去，用户点开只能看到一张验证图，还以为是 App 坏了——宁可当场报错。
+        const minedTitle = pageTitle(html, finalUrl);
+        const inputTitle = String((payload && payload.title) || '').trim();
+        const manualOk = usableTitle(inputTitle, finalUrl);
+        if (!minedTitle && !manualOk && looksLikeGatePage(html)) {
+          return bad(502, '对方网站要求人工验证，抓到的是一张验证页。稍后再试，或者换用浏览器扩展收藏');
+        }
+
         // 注入 <base>：原始 HTML 里的相对路径（图片/样式）要靠它解析回原站，
         // 否则阅读页里全是裂图。绝对地址的图片后面还会被 /p/:id 改写成 /api/img 代理。
         if (!/<base[\s>]/i.test(html)) {
@@ -1216,7 +1242,9 @@ const server = http.createServer((req, res) => {
         }
         const meta = persistPage({
           html,
-          title: String((payload && payload.title) || '').trim() || pageTitle(html) || finalUrl,
+          // 标题：用户手填的优先，其次从页面里挖（og:title → <title> → 微信 h1 → 任意 h1）。
+          // 实在挖不到才退回网址——显示网址至少点进去能看出来源，比"未命名"强。
+          title: manualOk ? inputTitle.slice(0, 300) : (minedTitle || finalUrl),
           url: finalUrl,
           platform: String((payload && payload.platform) || 'mobile'),
           format: 'html',

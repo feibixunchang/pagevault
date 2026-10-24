@@ -121,6 +121,15 @@ public class ReaderActivity extends Activity {
             web.evaluateJavascript(r.body, r1 -> {
                 final String extract = "(function(){try{"
                         + "var d=new DOMParser().parseFromString(document.documentElement.outerHTML,'text/html');"
+                        // 先把内联的「隐藏」样式洗掉。微信文章把正文容器写成
+                        // visibility:hidden; opacity:0，等自己的脚本排版完再显示；
+                        // 我们存的是静态快照，Readability 看到这段样式就判定"不可见"、
+                        // 直接跳过，结果整篇抽不出来（报"这页不像文章"）。
+                        // iOS 那边早就有等价的 unhide()，这里是补上安卓的。
+                        + "var st=d.querySelectorAll('[style]');"
+                        + "for(var i=0;i<st.length;i++){var s=st[i].getAttribute('style')||'';"
+                        + "if(/display\\s*:\\s*none|visibility\\s*:\\s*hidden|opacity\\s*:\\s*0/i.test(s)){"
+                        + "st[i].style.display='';st[i].style.visibility='';st[i].style.opacity='';}}"
                         + "var a=new Readability(d).parse();"
                         + "if(!a||!a.content){window.__pvErr='no-article';return 'ERR';}"
                         + "window.__pvArticle=a;return 'OK';}catch(e){"

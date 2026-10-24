@@ -15,7 +15,7 @@ FROM node:22-alpine
 LABEL org.opencontainers.image.title="PageVault 网页收藏" \
       org.opencontainers.image.description="多端网页收藏：Web 阅读器 + 浏览器扩展 + WebDAV 同步" \
       org.opencontainers.image.source="https://github.com/feibixunchang/pagevault" \
-      org.opencontainers.image.version="1.5.3" \
+      org.opencontainers.image.version="1.5.4" \
       org.opencontainers.image.licenses="MIT"
 
 RUN apk add --no-cache tini su-exec
@@ -23,9 +23,13 @@ RUN apk add --no-cache tini su-exec
 WORKDIR /app
 
 # 只拷运行期需要的东西；server 源码全部用 Node 内置模块，无 node_modules
-COPY server/package.json server/server.js server/sync.js server/providers.js server/webdav.js server/zip.js server/dnsx.js server/extws.js server/hotlist.js server/sources.js server/htmlish.js ./
+COPY server/package.json server/server.js server/sync.js server/providers.js server/webdav.js server/zip.js server/dnsx.js server/extws.js server/hotlist.js server/sources.js server/htmlish.js server/titles.js ./
 COPY server/public ./public
 COPY extension ./extension
+# 运维脚本：容器里可以直接 `docker exec pagevault node /app/scripts/fix-titles.js /data --write`
+# 来补历史收藏的标题。注意 require('../server/titles.js') 在这里会落空，
+# 所以脚本里做了 ./titles.js 的兼容查找。
+COPY scripts/fix-titles.js ./scripts/fix-titles.js
 COPY server/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 ENV NODE_ENV=production \
