@@ -285,12 +285,14 @@ if (Test-Path -LiteralPath $exe) {
   Write-Log ('找不到可执行文件: ' + $exe)
 }
 
-# 5. 清理（旧目录可能还被系统占着，删不掉就留给下次）
-Start-Sleep -Milliseconds 800
-if (Test-Path -LiteralPath $old) {
+# 5. 清理。只有"已经换上新版本"才删旧目录；换失败时旧目录是用户唯一的可用副本，
+#    必须留着，等他手动恢复或者把日志发过来。
+if ($swapped -and (Test-Path -LiteralPath $old)) {
   try { Remove-Item -LiteralPath $old -Recurse -Force -ErrorAction Stop } catch { Write-Log '旧目录被占用，留待下次清理' }
+} elseif (Test-Path -LiteralPath $old) {
+  Write-Log ('旧版本保留在 ' + $old + '，可手动改名回退')
 }
-if (Test-Path -LiteralPath $Stage) {
+if ($swapped -and (Test-Path -LiteralPath $Stage)) {
   try { Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction Stop } catch { }
 }
 Write-Log '==== 结束 ===='
