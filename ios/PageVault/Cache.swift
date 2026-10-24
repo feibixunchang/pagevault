@@ -5,6 +5,12 @@ import Foundation
 final class Cache {
     static let shared = Cache()
 
+    /// 正文缓存格式版本。
+    /// 服务端从 1.5.4 起给阅读页做了瘦身（剥掉 <script>，微信文章 3.4MB → 76KB），
+    /// 旧缓存里存的是"整页带脚本"的版本，手机上加载会直接被系统杀掉（表现为点开就闪退）。
+    /// 换这个值等于**清空所有正文缓存**，下次打开会从服务端重新拉——不要随便动。
+    private static let formatVersion = "v2"
+
     private let fm = FileManager.default
 
     private var root: URL {
@@ -15,9 +21,20 @@ final class Cache {
     }
 
     private var pagesDir: URL {
-        let dir = root.appendingPathComponent("pages", isDirectory: true)
+        let dir = root.appendingPathComponent("pages-" + Cache.formatVersion, isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    /// 换格式版本后，把旧版正文缓存删掉，别白占几百 MB。启动时跑一次即可。
+    func migrateIfNeeded() {
+        let marker = root.appendingPathComponent("format-" + Cache.formatVersion)
+        if fm.fileExists(atPath: marker.path) { return }
+        for name in ["pages"] {   // 历史版本用过的目录名
+            let old = root.appendingPathComponent(name, isDirectory: true)
+            if fm.fileExists(atPath: old.path) { try? fm.removeItem(at: old) }
+        }
+        try? Data().write(to: marker)
     }
 
     private var indexURL: URL { root.appendingPathComponent("index.json") }

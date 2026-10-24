@@ -506,6 +506,36 @@ function injectPageCsp(html) {
   return meta + s;
 }
 
+/**
+ * 阅读用的瘦身：剥掉所有 <script>，并解除"先用 CSS 藏起来等 JS 显示"的内联样式。
+ *
+ * 为什么必须剥脚本：
+ *   1) 体积。微信文章整页 3.4MB，其中 98% 是 58 个 <script>；剥掉后只剩 70KB。
+ *      手机上 WKWebView 加载 3.4MB + 一堆脚本会被系统直接杀掉——表现就是点开就闪退。
+ *   2) 安全。同源脚本能直接调 /api 删库（CSP 只挡了 connect，挡不住同源读写 DOM）。
+ *   3) 我们存的是抓取时的静态快照，脚本从来没跑过，删掉不影响已抓到的内容。
+ * 副作用只有一个：靠 JS 显示出来的内容本来就没抓到，删不删都一样。
+ *
+ * 但微信这类页面把正文写成 visibility:hidden; opacity:0，等自己的 JS 排版完再显示。
+ * 光删脚本会让正文永远藏着，所以必须同时把这两种内联样式解掉。
+ */
+const SCRIPT_TAG_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
+const INLINE_STYLE_RE = /(style\s*=\s*["'])([^"']*)(["'])/gi;
+const HIDING_CSS_RE = /visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0+)?\s*(?:;|$)/i;
+
+function slimPageForReading(html) {
+  let s = String(html).replace(SCRIPT_TAG_RE, '');
+  s = s.replace(INLINE_STYLE_RE, (whole, open, css, close) => {
+    if (!HIDING_CSS_RE.test(css)) return whole;
+    const next = css
+      .replace(/visibility\s*:\s*hidden\s*;?/gi, '')
+      .replace(/opacity\s*:\s*0(?:\.0+)?\s*;?/gi, '')
+      .trim();
+    return open + next + close;
+  });
+  return s;
+}
+
 // 落盘 + 建索引 + 广播 + 触发同步。浏览器扩展上传、手机端按链接抓取，两条路都走这里，
 // 保证存出来的数据格式完全一致（同步/WebDAV/离线缓存都依赖这一点）。
 function persistPage(payload, opts) {
@@ -1358,6 +1388,8 @@ const server = http.createServer((req, res) => {
     if (!meta) { send(res, 404, 'not found'); return; }
     let html;
     try { html = fs.readFileSync(path.join(DATA_DIR, meta.file), 'utf8'); } catch { send(res, 404, 'not found'); return; }
+    // 先瘦身再代理，省掉为脚本里的网址做无用替换
+    html = slimPageForReading(html);
     if (/<img[^>]+src="https?:|url\(\s*['"]?https?:/i.test(html)) {
       const proxyBase = '/api/img?r=' + encodeURIComponent(meta.url || '') + '&u=';
       html = html

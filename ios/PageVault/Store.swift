@@ -100,6 +100,9 @@ final class Store: ObservableObject {
         FontCatalog.registerAll()
         installedFonts = FontCatalog.installedIDs()
 
+        // 缓存格式换过版本（服务端给阅读页瘦身了），旧正文缓存直接丢掉重拉
+        Cache.shared.migrateIfNeeded()
+
         let cached = Cache.shared.loadIndex()
         if !cached.isEmpty { pages = cached }
 

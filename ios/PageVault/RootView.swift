@@ -76,7 +76,11 @@ struct RootView: View {
                     .environmentObject(store)
             }
             .task {
-                if store.pages.isEmpty { await store.refresh() }
+                // 有缓存也要刷一次。这里原先是 `if store.pages.isEmpty { refresh() }`，
+                // 结果冷启动永远只显示上次的缓存：在电脑/网页上刚改过的标题、刚存进去的
+                // 文章，手机上得手动下拉才出现，看着像"没生效"。
+                // 现在先拿缓存秒开，同时静默拉一次最新（列表非空就不显示转圈）。
+                await store.refresh(showSpinner: store.pages.isEmpty)
                 openDebugScreenIfRequested()
             }
             // 导航栏标题/按钮是 UIKit 画的，得单独喂字体
