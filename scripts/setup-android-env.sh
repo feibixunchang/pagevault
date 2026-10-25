@@ -19,12 +19,28 @@ DL=/tmp/dl
 mkdir -p "$DL"
 
 # ---------- 1. JDK 17 ----------
+# ⚠️ 沙箱代理只放行部分主机：GitHub 的 release 下载常被拦断，
+#    所以这里按顺序试多个源（清华镜像 → GitHub 官方），第一个成功的就用它。
+#    半截文件会被清掉重下，避免下到坏包还当成功。
+JDK_URLS=(
+  "https://mirrors.tuna.tsinghua.edu.cn/Adoptium/17/jdk/${JDK_ARCH}/mac/OpenJDK17U-jdk_${JDK_ARCH}_mac_hotspot_17.0.21_9.tar.gz"
+  "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jdk_${JDK_ARCH}_mac_hotspot_17.0.13_11.tar.gz"
+)
 if [ ! -x "$JDK_DIR/Contents/Home/bin/javac" ]; then
   echo "[1/4] 下载 JDK 17 ($JDK_ARCH)"
-  URL="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jdk_${JDK_ARCH}_mac_hotspot_17.0.13_11.tar.gz"
-  [ -f "$DL/jdk.tar.gz" ] || curl -fL --retry 3 -o "$DL/jdk.tar.gz" "$URL"
-  mkdir -p "$JDK_DIR"
-  # 直接解到目标目录：解出来是 jdk-17.0.13+11/Contents/...，剥掉第一层
+  OK=0
+  for URL in "${JDK_URLS[@]}"; do
+    echo "  尝试：$(echo "$URL" | cut -c1-70)"
+    rm -f "$DL/jdk.tar.gz"
+    if curl -fL --retry 2 --max-time 900 -o "$DL/jdk.tar.gz" "$URL"; then
+      # 校验是完整 tar.gz（能完整解出才继续）
+      if tar tzf "$DL/jdk.tar.gz" >/dev/null 2>&1; then OK=1; echo "  下载完成"; break; fi
+      echo "  下载不完整，重试下一个源"
+    fi
+  done
+  [ "$OK" = "1" ] || { echo "JDK 下载失败（所有源都不通）"; exit 1; }
+  rm -rf "$JDK_DIR"; mkdir -p "$JDK_DIR"
+  # 直接解到目标目录：解出来是 jdk-17.0.x+xx/Contents/...，剥掉第一层
   tar xzf "$DL/jdk.tar.gz" -C "$JDK_DIR" --strip-components=1
 fi
 "$JDK_DIR/Contents/Home/bin/javac" -version
