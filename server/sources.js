@@ -223,17 +223,6 @@ const SOURCES = [
     parse: (text, baseUrl) => parseFeed(text, baseUrl)
   },
   {
-    id: 'ruanyifeng',
-    name: '阮一峰博客',
-    emoji: '📖',
-    desc: '科技周刊与长文',
-    type: 'rss',
-    // 官网的 atom.xml 会被 Cloudflare 挡（403），走 feedburner 镜像稳
-    url: 'https://feeds.feedburner.com/ruanyifeng',
-    selectors: ['#main-content', '.entry-content', 'article'],
-    parse: (text, baseUrl) => parseFeed(text, baseUrl)
-  },
-  {
     id: 'solidot',
     name: 'Solidot',
     emoji: '🐧',

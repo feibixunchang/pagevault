@@ -170,9 +170,26 @@ function stripNoise(el) {
   if (!el.children) return;
   el.children = el.children.filter(c => {
     if (c.tag === '#text') return true;
-    return !isNoise(c);
+    if (!isNoise(c)) return true;
+    // ⚠️ 名字像噪音，不等于里面没有正文：蓝点网（WordPress 主题 mnews-pro）
+    // 把整篇文章放在 class="sidebar-module" 的 section 里，"sidebar" 命中噪音词后
+    // 整棵子树被删 → 文章没了，只剩 914 字节的空壳。
+    // 只要噪音节点里包着一个有实质文字的 <article>，就保留它，只继续清理子节点。
+    // 导航/侧栏/评论块里不可能有 400 字以上的 <article>，不会把真噪音放回来。
+    return hasRealArticle(c);
   });
   for (const c of el.children) stripNoise(c);
+}
+
+/** 元素自身或后代里有没有"像真正的文章"的 <article>（文字够长） */
+function hasRealArticle(el) {
+  if (el.tag === 'article') {
+    return textOf(el).replace(/\s+/g, ' ').trim().length >= 400;
+  }
+  for (const c of el.children || []) {
+    if (c.tag !== '#text' && hasRealArticle(c)) return true;
+  }
+  return false;
 }
 
 // class/id 里带这些词的，多半是正文容器
@@ -370,6 +387,9 @@ const SITE_SELECTORS = [
   { host: /(^|\.)solidot\.org$/, sels: ['.about_at', '.contentbox'] },
   { host: /(^|\.)ifanr\.com$/, sels: ['.article-content', '.article-body'] },
   { host: /(^|\.)geekpark\.net$/, sels: ['.detail-content', '.article_content'] },
+  // 蓝点网：WordPress 主题 mnews-pro，文章在 <article class="entry"> 里，
+  // 但外层容器叫 sidebar-module（会被噪音规则误删，见 stripNoise 里的保护）
+  { host: /(^|\.)landian\.news$/, sels: ['.entry', 'article.entry', 'article'] },
   { host: /(^|\.)ruanyifeng\.com$/, sels: ['#main-content', '.entry-content', 'article'] },
   { host: /(^|\.)news\.ycombinator\.com$/, sels: ['.toptext', '.commtext'] }
 ];

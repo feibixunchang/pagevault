@@ -16,7 +16,7 @@ const { SOURCES, getSource, parseList, UA_DESKTOP } = require('./sources.js');
 const { urlKey } = require('./urlkey.js');
 
 // 备选 UA：有些站点的 WAF 会把「完整 Chrome UA 但没有 client hints」的请求判成机器人
-// （阮一峰就是：长 UA 403，短 UA 200）。403 时换一个 UA 再试一次。
+// （实测：有站点长 UA 403、短 UA 200）。403 时换一个 UA 再试一次。
 const UA_ALT = 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/126.0 Safari/537.36';
 const { extractArticle, stripNoiseOnly } = require('./htmlish.js');
 
