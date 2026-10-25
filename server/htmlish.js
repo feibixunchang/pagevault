@@ -33,7 +33,13 @@ const NOISE_WORDS = [
   'hotlist', 'nav-', 'navbar', 'menu', 'footer', 'header', 'banner', 'advert',
   'advertis', 'ad-', '-ad', 'ads-', 'share', 'copyright', 'breadcrumb',
   'pagination', 'subscribe', 'newsletter', 'toolbar', 'widget', 'popup',
-  'modal', 'float-', 'sticky', 'qrcode', 'reward'
+  'modal', 'float-', 'sticky', 'qrcode', 'reward',
+  // 广告容器的常见类名（按词边界匹配，不会误伤正文）：
+  // 'gg'——蓝点网把广告位包在 div.content-gg 里（gg=广告的拼音缩写）；
+  // 'ticker'——蓝点网伪装成"热门推荐"的滚动广告条 single-activity-ticker；
+  // 'adsbygoogle'——Google AdSense 的 <ins class="adsbygoogle">；
+  // 'sponsor'——cnBeta 的赞助位 div.cb-sponsor。
+  'gg', 'ticker', 'adsbygoogle', 'sponsor'
 ];
 
 /**

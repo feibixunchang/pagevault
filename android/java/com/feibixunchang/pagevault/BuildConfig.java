@@ -7,6 +7,6 @@ package com.feibixunchang.pagevault;
  * 由 scripts/stamp-version.js 负责同步（和 desktop/package.json 保持一致）。
  */
 public final class BuildConfig {
-    public static final String VERSION = "1.5.8";
+    public static final String VERSION = "1.5.9";
     public static final String PACKAGE = "com.feibixunchang.pagevault";
 }

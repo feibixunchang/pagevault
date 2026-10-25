@@ -18,7 +18,7 @@ const { pageTitle, usableTitle, looksLikeGatePage } = require('./titles');
 const { parseFeed, parseOpml } = require('./sources');
 const { urlKey, sameUrl } = require('./urlkey.js');
 
-const VERSION = '1.5.8';
+const VERSION = '1.5.9';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
@@ -657,8 +657,60 @@ const SCRIPT_TAG_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
 const INLINE_STYLE_RE = /(style\s*=\s*["'])([^"']*)(["'])/gi;
 const HIDING_CSS_RE = /visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0+)?\s*(?:;|$)/i;
 
+// 已知广告容器的阅读时剥离（兜底老存档）。
+// 新存的页会在 htmlish.js 抽取时按 class 剥掉这些容器，但库里的老文章是旧规则存的，
+// 阅读时按明确特征再剥一遍，老文章也干净。
+// 匹配策略：
+//   - <ins class="adsbygoogle">：AdSense 占位，素体是空的，连壳一起删；
+//   - div.content-gg / div.cb-sponsor：按开闭标签**配对**删除（容器里允许嵌同类块，
+//     如 cnBeta 的 cb-sponsor 里还套了一层 div）；找不到配对闭标签就原样不动；
+//   - p.single-activity-ticker：非贪婪匹配 + 内部不允许出现块级元素，宁可漏删也不啃正文。
+const ADSENSE_INS_RE = /<ins\b[^>]*class\s*=\s*["'][^"']*\badsbygoogle\b[^"']*["'][^>]*>[\s\S]*?<\/ins\s*>/gi;
+const AD_DIV_RES = [
+  /<(div)\b[^>]*class\s*=\s*["'][^"']*\b(?:content-gg|cb-sponsor)\b[^"']*["'][^>]*>/gi
+];
+const AD_TICKER_RE = /<(p)\b[^>]*class\s*=\s*["'][^"']*\bsingle-activity-ticker\b[^"']*["'][^>]*>([\s\S]*?)<\/\1\s*>/gi;
+const AD_TICKER_NEST_RE = /<(?:div|p|section|article)\b/i;
+
+/** 按标签配对删掉 openRe 匹配到的整个元素（含自身）。没找到配对闭标签就跳过。 */
+function removeBalanced(html, openRe) {
+  let out = '';
+  let last = 0;
+  let m;
+  openRe.lastIndex = 0;
+  while ((m = openRe.exec(html))) {
+    const tag = m[1];
+    const tagRe = new RegExp('<' + tag + '\\b[^>]*>|</' + tag + '\\s*>', 'gi');
+    tagRe.lastIndex = openRe.lastIndex;
+    let depth = 1;
+    let end = -1;
+    let mm;
+    while ((mm = tagRe.exec(html))) {
+      if (mm[0].charAt(1) === '/') {
+        depth--;
+        if (depth === 0) { end = mm.index + mm[0].length; break; }
+      } else {
+        depth++;
+      }
+    }
+    if (end < 0) continue; // 闭合标签缺失：宁可留着，也不能从这往下全删了
+    out += html.slice(last, m.index);
+    last = end;
+    openRe.lastIndex = end;
+  }
+  return out + html.slice(last);
+}
+
+function stripKnownAds(html) {
+  let s = String(html).replace(ADSENSE_INS_RE, '');
+  for (const re of AD_DIV_RES) s = removeBalanced(s, re);
+  s = s.replace(AD_TICKER_RE, (whole, _tag, inner) => (AD_TICKER_NEST_RE.test(inner) ? whole : ''));
+  return s;
+}
+
 function slimPageForReading(html) {
   let s = String(html).replace(SCRIPT_TAG_RE, '');
+  s = stripKnownAds(s);
   s = s.replace(INLINE_STYLE_RE, (whole, open, css, close) => {
     if (!HIDING_CSS_RE.test(css)) return whole;
     const next = css
@@ -1663,10 +1715,22 @@ const server = http.createServer((req, res) => {
     try { html = fs.readFileSync(path.join(DATA_DIR, meta.file), 'utf8'); } catch { send(res, 404, 'not found'); return; }
     // 先瘦身再代理，省掉为脚本里的网址做无用替换
     html = slimPageForReading(html);
-    if (/<img[^>]+src="https?:|url\(\s*['"]?https?:/i.test(html)) {
-      const proxyBase = '/api/img?r=' + encodeURIComponent(meta.url || '') + '&u=';
+    if (/<img[^>]+src\s*=\s*["'](?:https?:|\/\/)|url\(\s*["']?https?:/i.test(html)) {
+      // ⚠️ 代理地址必须写成**绝对地址**，不能用根相对的 "/api/img?..."：
+      // 存档 HTML 里注入了 <base href="原文章网址">（保存时为了解析原站的相对路径），
+      // 浏览器会把根相对的 "/api/img" 按 base 的 origin 解析到**原站**去
+      // （例：landian.news/api/img → 404），文章里的图就全是裂图。
+      // 按请求的 Host 头拼出本站绝对地址；走反向代理时（X-Forwarded-Proto/Host）
+      // 也能拿到对外的 https 地址，不会被当成混合内容拦掉。
+      const fwdProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+      const proto = fwdProto === 'https' ? 'https' : 'http';
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || ('127.0.0.1:' + PORT)).replace(/^https?:\/\//, '');
+      const proxyBase = proto + '://' + host + '/api/img?r=' + encodeURIComponent(meta.url || '') + '&u=';
       html = html
         .replace(/(<img[^>]+src\s*=\s*["'])(https?:\/\/[^"']+)(["'])/gi, (mm, a, u, b) => a + proxyBase + encodeURIComponent(u) + b)
+        // 协议相对的图片（src="//cdn…"）：补上 https: 再走代理。
+        // 注意这条放在上面那条之后——已改写成的绝对代理地址开头是 http，不会误入此匹配。
+        .replace(/(<img[^>]+src\s*=\s*["'])(\/\/[^"']+)(["'])/gi, (mm, a, u, b) => a + proxyBase + encodeURIComponent('https:' + u) + b)
         .replace(/(url\(\s*["']?)(https?:\/\/[^)"']+)(["']?\s*\))/gi, (mm, a, u, b) => a + proxyBase + encodeURIComponent(u) + b);
     }
     html = injectPageCsp(html);
