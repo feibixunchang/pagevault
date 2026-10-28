@@ -34,7 +34,7 @@ echo "架构：$ARCH_RAW → 文件名后缀 -macos-$ARCH"
 #    必须用 Python 打：macOS 自带 zip 命令会把中文名写成非 UTF-8 字节且不打标志位，
 #    Windows 资源管理器/部分解压工具会得到乱码文件名（Windows 端踩过同样的坑）。
 rm -f "$ZIP"
-$(command -v python3) - "$APP" "$ZIP" <<'PYEOF'
+python3 - "$APP" "$ZIP" <<'PYEOF'
 import os, sys, zipfile
 src, out = sys.argv[1], sys.argv[2]
 base = os.path.dirname(os.path.abspath(src))  # dist/ 目录：zip 内条目相对它 → 顶层是 网页收藏.app/
