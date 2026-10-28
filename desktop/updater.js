@@ -13,6 +13,7 @@ const https = require('https');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
 const { URL } = require('url');
 
@@ -81,11 +82,14 @@ const dnsx = loadDnsx();
 
 // 小请求：先试 Node 原生 http(s)，失败（企业代理/TLS 拦截等）自动 fallback 到 curl。
 // 返回 { status, headers: {location, content-length, ...}, body: Buffer }
-function httpGet(url, headers, timeoutMs) {
-  return nodeGet(url, headers, timeoutMs).catch((e) => curlGet(url, headers, timeoutMs, e));
+// follow：3xx 时自动跟随几跳（测速/下载要；版本探测必须不跟，靠 302 的 Location 取 tag）
+// maxBytes：响应体上限（测速场景挡"忽略 Range 返回 200 全量"——不设上限会把整包吞进内存）
+function httpGet(url, headers, timeoutMs, follow, maxBytes) {
+  return nodeGet(url, headers, timeoutMs, 0, follow, maxBytes)
+    .catch((e) => curlGet(url, headers, timeoutMs, e, follow, maxBytes));
 }
 
-async function nodeGet(url, headers, timeoutMs) {
+async function nodeGet(url, headers, timeoutMs, redirects, follow, maxBytes) {
   const u = new URL(url);
   const mod = u.protocol === 'https:' ? https : http;
   const opts = { headers: Object.assign({ 'User-Agent': UA }, headers || {}), timeout: timeoutMs || 12000 };
@@ -97,8 +101,26 @@ async function nodeGet(url, headers, timeoutMs) {
   }
   return new Promise((resolve, reject) => {
     const req = mod.get(url, opts, (res) => {
+      // GitHub Releases 的下载地址永远先 302 到 objects.githubusercontent.com，
+      // v1.5.9 及以前不跟这个跳转，"GitHub 官方"渠道测速/下载全程是死的。
+      const sc = res.statusCode || 0;
+      if (sc >= 300 && sc < 400 && res.headers.location && (follow || 0) > (redirects || 0)) {
+        res.resume();
+        let next;
+        try { next = new URL(res.headers.location, u).toString(); } catch { reject(new Error('重定向地址不对')); return; }
+        nodeGet(next, headers, timeoutMs, (redirects || 0) + 1, follow, maxBytes).then(resolve, reject);
+        return;
+      }
       const chunks = [];
-      res.on('data', c => chunks.push(c));
+      let size = 0;
+      res.on('data', c => {
+        size += c.length;
+        if (maxBytes && size > maxBytes) {
+          req.destroy(new Error('响应体超过上限 ' + maxBytes + ' 字节（服务器未按 Range 返回）'));
+          return;
+        }
+        chunks.push(c);
+      });
       res.on('end', () => resolve({
         status: res.statusCode,
         headers: { location: res.headers.location || '', 'content-length': res.headers['content-length'] || '' },
@@ -110,13 +132,18 @@ async function nodeGet(url, headers, timeoutMs) {
   });
 }
 
-function curlGet(url, headers, timeoutMs, origErr) {
+function curlGet(url, headers, timeoutMs, origErr, follow, maxBytes) {
   return new Promise((resolve, reject) => {
-    // 注意：不加 -L——checkLatest 需要看 302 Location，跟随了就丢了
+    // 不加 -L 时保留 302（checkLatest 靠 Location）；测速/下载传 follow 就带上
     const args = ['-sS', '--max-time', String(Math.ceil((timeoutMs || 12000) / 1000)), '-A', UA];
+    if (follow) args.push('-L', '--max-redirs', String(follow));
+    if (maxBytes) args.push('--max-filesize', String(maxBytes));
     for (const k of Object.keys(headers || {})) args.push('-H', k + ': ' + headers[k]);
     args.push('-w', '\n@@PV_STATUS=%{http_code} @@PV_REDIRECT=%{redirect_url}', url);
-    execFile('curl', args, { maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+    // maxBuffer 也要卡上限：否则 Node 路径被内存护栏掐断后 fallback 到这里，
+    // curl 反而把几十 MB 全量吞回内存（实测踩过：护栏形同虚设）。
+    const cap = (maxBytes || 2 * 1024 * 1024) * 4;
+    execFile('curl', args, { maxBuffer: Math.max(64 * 1024, Math.min(64 * 1024 * 1024, cap)) }, (err, stdout, stderr) => {
       if (err) {
         reject(new Error((origErr ? origErr.message + ' / ' : '') + 'curl: ' + (stderr || err.message).slice(0, 120)));
         return;
@@ -133,7 +160,8 @@ function curlGet(url, headers, timeoutMs, origErr) {
 }
 
 // 流式 GET（下载大文件用）：返回 { status, headers, stream }；Node 失败时 fallback curl 子进程 stdout
-async function httpGetStream(url, headers, timeoutMs) {
+// 3xx 跟随（GitHub 官方下载地址必 302 跳转）；curl 兜底同理补 -L
+async function httpGetStream(url, headers, timeoutMs, hops) {
   const u = new URL(url);
   const mod = u.protocol === 'https:' ? https : http;
   const opts = { headers: Object.assign({ 'User-Agent': UA }, headers || {}), timeout: timeoutMs || 30000 };
@@ -145,13 +173,20 @@ async function httpGetStream(url, headers, timeoutMs) {
   }
   return new Promise((resolve, reject) => {
     const req = mod.get(url, opts, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) { res.resume(); reject(Object.assign(new Error('redirect'), { redirect: res.headers.location })); return; }
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        if ((hops || 0) >= 5) { reject(new Error('重定向次数太多')); return; }
+        let next;
+        try { next = new URL(res.headers.location, u).toString(); } catch { reject(new Error('重定向地址不对')); return; }
+        httpGetStream(next, headers, timeoutMs, (hops || 0) + 1).then(resolve, reject);
+        return;
+      }
       resolve({ status: res.statusCode, headers: { location: '', 'content-length': res.headers['content-length'] || '' }, stream: res });
     });
     req.on('timeout', () => req.destroy(new Error('请求超时')));
     req.on('error', (e) => {
       // Node 不通（沙箱/代理/TLS 拦截）：curl 子进程兜底，stdout 即数据流
-      const args = ['-sS', '--max-time', '600', '-A', UA];
+      const args = ['-sSL', '--max-redirs', '5', '--max-time', '600', '-A', UA];
       for (const k of Object.keys(headers || {})) args.push('-H', k + ': ' + headers[k]);
       args.push(url);
       const child = spawn('curl', args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -362,7 +397,9 @@ class Updater {
 
   _probe(entry, bytes) {
     const started = Date.now();
-    return httpGet(entry.url, { Range: `bytes=0-${bytes - 1}` }, 8000)
+    // follow=3：官方渠道先 302 到 objects.githubusercontent，不跟就永远测不出它可用；
+    // maxBytes：个别镜像无视 Range 直接回 200 全量，不设上限会把整包（数百 MB）吞进内存。
+    return httpGet(entry.url, { Range: `bytes=0-${bytes - 1}` }, 8000, 3, bytes * 4)
       .then((r) => {
         const ms = Date.now() - started;
         if (r.status !== 200 && r.status !== 206) return { ok: false, id: entry.id };
@@ -373,18 +410,51 @@ class Updater {
       .catch(() => ({ ok: false, id: entry.id }));
   }
 
-  // ---------- 完整下载（带进度） ----------
-  async download(url, destPath, onProgress) {
+  // ---------- 完整性校验（尽力而为）：从 Release 资产元数据的 digest 字段取 sha256 ----------
+  // 只信 GitHub 官方来源；拿不到就返回 ''（降级为不校验，绝不因取不到摘要就阻断更新）。
+  async fetchAssetDigest(tag, filename) {
+    if (!tag || !filename) return '';
+    const sources = [
+      `https://api.github.com/repos/${REPO}/releases/tags/${tag}`,
+      `https://gh-proxy.com/https://api.github.com/repos/${REPO}/releases/tags/${tag}`,
+      `https://ghfast.top/https://api.github.com/repos/${REPO}/releases/tags/${tag}`
+    ];
+    for (const s of sources) {
+      try {
+        const r = await httpGet(s, { Accept: 'application/vnd.github+json' }, 8000);
+        if (r.status !== 200) continue;
+        const j = JSON.parse(r.body.toString('utf8'));
+        const asset = (j.assets || []).find(a => a && a.name === filename);
+        const dg = asset && asset.digest;
+        if (asset && /^sha256-[0-9a-f]{64}$/i.test(String(dg || ''))) return String(dg).replace(/^sha256-/i, '').toLowerCase();
+      } catch { /* 换下一个源 */ }
+    }
+    return '';
+  }
+
+  // ---------- 完整下载（带进度 + 可取消 + 可选 sha256 校验）----------
+  // opts: { onProgress(p), expectedSha256 }
+  async download(url, destPath, opts) {
+    opts = opts || {};
+    const onProgress = opts.onProgress;
+    const expectedSha256 = String(opts.expectedSha256 || '').toLowerCase();
     this.emit({ status: 'downloading', progress: 0, error: '' });
     let got = 0;
     try {
       const r = await httpGetStream(url, {}, 30000);
       if (r.status !== 200) throw new Error('下载失败 HTTP ' + r.status);
       const total = Number(r.headers['content-length'] || 0);
+      const hash = crypto.createHash('sha256');
       await new Promise((resolve, reject) => {
         const out = fs.createWriteStream(destPath);
+        // 取消：kill curl 子进程 + destroy 输入流，中断 pipe 后按失败收尾
+        this.downloadAbort = () => {
+          try { if (r.child) r.child.kill(); } catch { /* ignore */ }
+          try { r.stream.destroy(); } catch { /* ignore */ }
+          reject(new Error('cancelled'));
+        };
         r.stream.on('data', (c) => {
-          got += c.length;
+          got += c.length; hash.update(c);
           if (total && onProgress) onProgress(got / total);
           else if (onProgress) onProgress(-1); // 拿不到总大小（curl 兜底时）
         });
@@ -393,16 +463,23 @@ class Updater {
         out.on('finish', () => out.close(resolve));
         r.stream.pipe(out);
       });
+      // 完整性：拿到 GitHub 官方 sha256 才比对；拿不到跳过（不阻断更新）
+      if (expectedSha256) {
+        const actual = hash.digest('hex');
+        if (actual !== expectedSha256) throw new Error('下载完整性校验失败：sha256 不匹配（渠道可能返回了损坏或被替换的文件）');
+      }
       this.emit({ status: 'downloading', progress: 1, error: '' });
       return destPath;
     } catch (e) {
       // 流被中断时 curl 子进程可能还在，补一刀
       try { fs.unlinkSync(destPath); } catch { /* 没下完的文件删不掉就算了 */ }
       throw e;
+    } finally {
+      this.downloadAbort = null;
     }
   }
 
-  cancelDownload() { if (this.downloadAbort) this.downloadAbort(); }
+  cancelDownload() { if (this.downloadAbort) { try { this.downloadAbort(); } catch { /* ignore */ } } }
 
   // ---------- 安装：解压 + 替换 + 重启 ----------
   async install(zipPath, opts) {
@@ -433,6 +510,19 @@ class Updater {
       // 5. 延迟启动新实例（等旧实例退出释放单实例锁和端口），然后退出旧进程
       const relaunch = spawn('/bin/sh', ['-c', `sleep 2; open "${target}"`], { detached: true, stdio: 'ignore' });
       relaunch.unref();
+      // 6. 装成功后打扫：解压临时目录直接删；同目录的旧版备份只保留最新一份
+      //    （以前每次都留一个 200MB+ 的 .bak 且永不清理，装几次 ~/Applications 就满了）
+      try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* 系统会清 tmp */ }
+      try {
+        const parent = path.dirname(target);
+        const base = path.basename(target);
+        const baks = fs.readdirSync(parent)
+          .filter(n => n.startsWith(base + '.bak-'))
+          .sort(); // '.bak-<毫秒时间戳>' 定长，字典序即时间序
+        for (const n of baks.slice(0, Math.max(0, baks.length - 1))) {
+          try { fs.rmSync(path.join(parent, n), { recursive: true, force: true }); } catch { /* 删不动就算了 */ }
+        }
+      } catch { /* 清不了不影响已装好的新版 */ }
       this.emit({ status: 'ready', installedTo: target, backup });
       return { target, backup };
     }

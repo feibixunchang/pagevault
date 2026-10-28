@@ -21,6 +21,10 @@ const { createProvider } = require('./providers');
 
 const ONLINE_WINDOW_MS = 120000; // 扩展"已连接"判定窗口（与心跳周期匹配）
 const TICK_MS = 5000;            // 调度器检查间隔
+// 页面 id 必须是安全字符（uuid 都是 [\w-]）：远端索引/文件列表里的 id 不可信，
+// 带 ../ 的 id 会穿过 pages/ 目录写到机器上任何位置（writePage 拿它拼路径）。
+const SAFE_PAGE_ID = /^[\w-]{1,80}$/;
+function badPageId(id) { return !SAFE_PAGE_ID.test(String(id || '')); }
 
 function extractMeta(html) {
   const m = /<!--\s*pv-meta:([\s\S]*?)-->/i.exec(html || '');
@@ -139,6 +143,7 @@ class SyncEngine {
 
       for (const rm of remoteIndex) {
         if (!rm || !rm.id) continue;
+        if (badPageId(rm.id)) { errors.push('远端页面 id 非法，跳过：' + rm.id); continue; }
         if (delMap.has(rm.id)) continue;
         if (localMap.has(rm.id)) {
           // 星标冲突：starredAt 新的赢
@@ -160,6 +165,7 @@ class SyncEngine {
 
       // 孤儿文件自愈：远端有页面文件、索引里没有 -> 读文件头 pv-meta 恢复
       for (const id of remoteIds) {
+        if (badPageId(id)) continue;
         if (delMap.has(id) || localMap.has(id) || remoteMap.has(id)) continue;
         const html = await prov.getPage(id);
         if (html == null) continue;
@@ -213,8 +219,27 @@ class SyncEngine {
         }
       }
 
-      this.hooks.saveIndex(localIndex);
-      await prov.putIndex(localIndex);
+      // 合并写回索引：localIndex 是本轮开始时的快照，而同步过程中（多个 await 网络）
+      // 扩展保存 / 对端推送 / 收藏 都会改磁盘上的 index.json。直接 saveIndex(localIndex)
+      // 会把"同步期间新增的页面"整体抹掉（文件还在盘上、条目却从索引消失）。
+      // 正确做法：以磁盘最新索引为基底，叠加本轮 pull/normalize/star 的结果，
+      // 再按墓碑过滤，最后写回。星标冲突按 starredAt 新的赢。
+      const diskNow = this.hooks.loadIndex().filter(m => m && m.id && !delMap.has(m.id));
+      const byId = new Map(diskNow.map(m => [m.id, m]));
+      for (const m of localIndex) {
+        if (!m || !m.id || delMap.has(m.id)) continue;
+        const cur = byId.get(m.id);
+        if (!cur) { byId.set(m.id, m); continue; }
+        // 同 id：本轮已 pull/normalize 过（含远端更新），若磁盘版本星标更新则保留星标字段
+        if (!!cur.starred !== !!m.starred && String(cur.starredAt || '') > String(m.starredAt || '')) {
+          m.starred = cur.starred; m.starredAt = cur.starredAt;
+        }
+        byId.set(m.id, m);
+      }
+      const finalIndex = [...byId.values()];
+
+      this.hooks.saveIndex(finalIndex);
+      await prov.putIndex(finalIndex);
       await prov.putDeletions(delList);
 
       st.status = errors.length && !stats.pulled && !stats.pushed ? 'error' : 'ok';
@@ -279,14 +304,16 @@ class SyncEngine {
     clearTimeout(this._deb);
   }
 
-  // 本地变更（保存/删除/收藏）后 debounce 触发一次，只推给"开了自动同步"的目标
+  // 本地变更（保存/删除/收藏）后 debounce 触发一次，只推给"开了自动同步"的目标。
+  // 必须串行（runAll）：并发跑两个目标时，各自手里的快照会互相覆盖索引，
+  // 而且后一个目标拿不到前一个刚拉下来的数据 —— 与"互为镜像"的设计矛盾。
   schedule(cfg) {
     if (!cfg || !cfg.targets || !cfg.targets.length) return;
     const auto = cfg.targets.filter(t => t.enabled !== false && this._intervalOf(t, cfg) > 0);
     if (!auto.length) return;
     clearTimeout(this._deb);
     this._deb = setTimeout(() => {
-      for (const t of auto) this.runOne(t, cfg);
+      this.runAll({ ...cfg, targets: auto });
     }, 2500);
   }
 }

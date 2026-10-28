@@ -167,9 +167,18 @@ function setupUpdaterIPC() {
     // 扩展名跟着资产走：Linux 是 .tar.gz，换错后缀 tar 解不开
     const ext = /\.tar\.gz($|\?)/.test(url) ? '.tar.gz' : '.zip';
     const dest = path.join(os.tmpdir(), 'pagevault-update-' + Date.now() + ext);
-    await updater.download(url, dest);
+    // 尽力而为的 sha256 校验：拿到 GitHub 官方摘要就比对，拿不到则跳过（不阻断更新）
+    const tag = updater.state.remoteVersion || '';
+    const asset = updater.state.asset || '';
+    let expectedSha256 = '';
+    try { if (tag && asset) expectedSha256 = await updater.fetchAssetDigest(tag, asset); } catch { /* 取不到就不校验 */ }
+    await updater.download(url, dest, {
+      expectedSha256,
+      onProgress: (p) => updater.emit({ status: 'downloading', progress: p < 0 ? 0 : p })
+    });
     return dest;
   });
+  ipcMain.handle('updater:cancel', async () => { updater.cancelDownload(); return { ok: true }; });
 
   ipcMain.handle('updater:install', async (_e, zipPath) => {
     // 就地升级：装到"当前正在运行的这份"所在位置。
@@ -183,6 +192,8 @@ function setupUpdaterIPC() {
       opts.targetApp = m ? m[1] : path.join(os.homedir(), 'Applications', '网页收藏.app');
     }
     const r = await updater.install(zipPath, opts);
+    // 装好了就把下载目录里的更新包删掉（100~200MB，留着只会一直占 tmp）
+    setTimeout(() => { try { fs.unlinkSync(zipPath); } catch { /* 已被 mac 安装流程删掉/无权限就跳过 */ } }, 500);
     // 覆盖安装后必须真的退出：macOS 的 open 会激活"已在运行的旧进程"，
     // 不退出的话点完更新界面没变化，用户会以为没装上。
     setTimeout(() => { quitting = true; app.quit(); }, 1200);
@@ -213,28 +224,36 @@ function setupUpdaterIPC() {
 
 /// 带回退重试的检查：GitHub 首次请求经常因为刚开机没网 / 代理没起来失败，
 /// 而原来失败是**完全静默**的——用户只看到"没有提示"，以为功能不存在。
+let updateChecking = false;   // 6h 定时器 / 窗口 focus / 30min 重试可能叠着触发，同一时间只跑一轮
 async function checkWithRetry() {
-  const delays = [0, 8000, 30000];
-  for (let i = 0; i < delays.length; i++) {
-    if (delays[i]) await new Promise(r => setTimeout(r, delays[i]));
-    const tag = await updater.checkLatest();
-    if (tag) {
-      lastCheckAt = Date.now();
-      return tag;                        // 成功（含"已是最新"）就不再重试
+  if (updateChecking) return null;
+  updateChecking = true;
+  try {
+    const delays = [0, 8000, 30000];
+    for (let i = 0; i < delays.length; i++) {
+      if (delays[i]) await new Promise(r => setTimeout(r, delays[i]));
+      const tag = await updater.checkLatest();
+      if (tag) {
+        lastCheckAt = Date.now();
+        return tag;                        // 成功（含"已是最新"）就不再重试
+      }
     }
+    lastFailAt = Date.now();
+    log('update check failed after retries:', updater.state.error || '');
+    // 失败后 30 分钟再试一次：原来要等 6 小时的定时器，刚开机没网/代理没起来的人
+    // 基本就错过整个版本了（Windows 端"有新版本却不提示"多半就是这一条）。
+    if (!retryTimer) {
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (readPref('autoUpdate', true) === false) return;
+        checkWithRetry();
+      }, 30 * 60 * 1000);
+      if (retryTimer.unref) retryTimer.unref();
+    }
+    return null;
+  } finally {
+    updateChecking = false;
   }
-  lastFailAt = Date.now();
-  log('update check failed after retries:', updater.state.error || '');
-  // 失败后 30 分钟再试一次：原来要等 6 小时的定时器，刚开机没网/代理没起来的人
-  // 基本就错过整个版本了（Windows 端"有新版本却不提示"多半就是这一条）。
-  if (retryTimer) return null;
-  retryTimer = setTimeout(() => {
-    retryTimer = null;
-    if (readPref('autoUpdate', true) === false) return;
-    checkWithRetry();
-  }, 30 * 60 * 1000);
-  if (retryTimer.unref) retryTimer.unref();
-  return null;
 }
 
 // 菜单「检查更新…」：主进程自己查、自己弹结果。
@@ -333,6 +352,7 @@ function startServer(cb) {
     probePageVault((isPv) => {
       if (isPv) {
         log('port ' + PORT + ' already serving PageVault, reusing existing server');
+        serverRestarts = 0;   // 端口有服务=状态健康，复位崩溃计数，别让它长期停在"放弃重启"
         cb(true);
       } else {
         log('port ' + PORT + ' is occupied by another program');

@@ -55,7 +55,15 @@ function fetchText(url, headers, timeoutMs, ua, hops) {
         let next;
         try { next = new URL(res.headers.location, u).toString(); } catch { return reject(new Error('重定向地址不对')); }
         // 带上 ua 和 hops：之前漏了，换过 UA 的请求一跳转就退回默认 UA
-        return fetchText(next, headers, timeoutMs, ua, (hops || 0) + 1).then(resolve, reject);
+        // ⚠️ 跨 origin 重定向时剥掉 Cookie：登录态源（知乎）的 Cookie 不能跟着跳转送给别的站
+        let nextHeaders = headers;
+        try {
+          if (headers && headers.Cookie && new URL(next, u).origin !== u.origin) {
+            nextHeaders = Object.assign({}, headers);
+            delete nextHeaders.Cookie;
+          }
+        } catch { /* 非法跳转地址下面 fetchText 会报错 */ }
+        return fetchText(next, nextHeaders, timeoutMs, ua, (hops || 0) + 1).then(resolve, reject);
       }
       if (code >= 400) {
         res.resume();

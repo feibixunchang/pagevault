@@ -13,6 +13,7 @@ const INVOKE_ALLOWED = new Set([
   'updater:check',
   'updater:channels',
   'updater:download',
+  'updater:cancel',
   'updater:install',
   'updater:version',
   'web:open'

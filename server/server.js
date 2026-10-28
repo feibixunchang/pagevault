@@ -18,7 +18,7 @@ const { pageTitle, usableTitle, looksLikeGatePage } = require('./titles');
 const { parseFeed, parseOpml } = require('./sources');
 const { urlKey, sameUrl } = require('./urlkey.js');
 
-const VERSION = '1.5.9';
+const VERSION = '1.5.10';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
@@ -121,7 +121,7 @@ function loadDeletions() {
   catch { return []; }
 }
 function saveDeletions(list) {
-  try { fs.writeFileSync(DELETIONS_FILE, JSON.stringify(list, null, 2)); } catch { /* 只读环境忽略 */ }
+  try { writeJsonAtomic(DELETIONS_FILE, JSON.stringify(list, null, 2)); } catch { /* 只读环境忽略 */ }
 }
 function addDeletion(id) {
   const list = loadDeletions().filter(d => d.id !== id);
@@ -288,7 +288,7 @@ function feedById(id) {
 function saveFeeds(list) {
   const p = loadPrefsRaw();
   p.hotlist = Object.assign({}, p.hotlist || {}, { feeds: list });
-  try { fs.writeFileSync(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ }
+  try { writeJsonAtomic(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ }
   // 订阅变了要重排定时器：新加的订阅得能自动拉，删掉的不能再拉。
   restartHotlistTimer();
   return list;
@@ -381,7 +381,7 @@ function saveHotlistConfig(next) {
     src[k] = next.sources[k];
   }
   p.hotlist = Object.assign({}, p.hotlist || {}, { sources: src });
-  try { fs.writeFileSync(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ }
+  try { writeJsonAtomic(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ }
   hotlist.setConfig(hotlistConfig());
   return next;
 }
@@ -395,6 +395,9 @@ function restartHotlistTimer() {
 // 前端要知道"配没配"看 /api/sources 的 hasCookie 就够，不需要拿到原文。
 function publicPrefs(prefs) {
   const out = Object.assign({}, prefs);
+  // syncServer.token 一并抹掉：GET /api/prefs 是局域网无鉴权可读的，
+  // 令牌 = 整库读写钥匙，显示/复制走 /api/sync/token（有门禁）
+  out.syncServer = scrubToken(out).syncServer;
   const hs = out.hotlist && out.hotlist.sources;
   if (hs && typeof hs === 'object') {
     const m = {};
@@ -446,7 +449,7 @@ function ensureSyncServer() {
   let changed = false;
   if (!s.token || typeof s.token !== 'string') { s.token = crypto.randomBytes(18).toString('hex'); changed = true; }
   if (typeof s.enabled !== 'boolean') { s.enabled = true; changed = true; }
-  if (changed) { p.syncServer = s; try { fs.writeFileSync(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ } }
+  if (changed) { p.syncServer = s; try { writeJsonAtomic(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 只读环境忽略 */ } }
   syncServerCache = s;
   return s;
 }
@@ -456,7 +459,7 @@ function resetSyncServerToken() {
   s.token = crypto.randomBytes(18).toString('hex');
   s.enabled = s.enabled !== false;
   p.syncServer = s;
-  try { fs.writeFileSync(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 忽略 */ }
+  try { writeJsonAtomic(PREFS_FILE, JSON.stringify(p, null, 2)); } catch { /* 忽略 */ }
   syncServerCache = s;
   return s;
 }
@@ -490,20 +493,100 @@ function peerDeny(res) {
 }
 
 
+// 原子写 JSON：先备份上一版（.bak），再 tmp+rename。
+// 直接 writeFileSync 大文件时被断电/崩溃截断，index.json 会解析失败——
+// 而老代码把"解析失败"当空库继续跑，下一次保存就把空索引固化，页面文件全成孤儿。
+function writeJsonAtomic(file, text) {
+  // 只有"当前旧版仍可解析"才备份：主文件已经坏了的时候，上一次的 .bak 才是唯一的救命稻草，
+  // 不能再拿坏内容把 .bak 一起污染掉（测试里真踩到了这个二次覆盖）。
+  try {
+    if (fs.existsSync(file)) {
+      let good = true;
+      if (file.endsWith('.json')) { try { JSON.parse(fs.readFileSync(file, 'utf8')); } catch { good = false; } }
+      if (good) fs.copyFileSync(file, file + '.bak');
+    }
+  } catch { /* 备份失败不挡写入 */ }
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, text, 'utf8');
+  fs.renameSync(tmp, file);
+}
+
 function loadIndex() {
-  try { return JSON.parse(fs.readFileSync(INDEX_FILE, 'utf8')); }
-  catch { return []; }
+  try {
+    const a = JSON.parse(fs.readFileSync(INDEX_FILE, 'utf8'));
+    return Array.isArray(a) ? a : [];
+  } catch {
+    // 主文件损坏：先试上一次写盘留下的 .bak，别静默当空库
+    try {
+      const b = JSON.parse(fs.readFileSync(INDEX_FILE + '.bak', 'utf8'));
+      if (Array.isArray(b)) { log('index.json 损坏，已从 index.json.bak 恢复 ' + b.length + ' 条'); return b; }
+    } catch { /* 备份也读不出来才当真没有 */ }
+    return [];
+  }
 }
 function saveIndex(list) {
-  fs.writeFileSync(INDEX_FILE, JSON.stringify(list, null, 2));
+  writeJsonAtomic(INDEX_FILE, JSON.stringify(list, null, 2));
+}
+
+// ---------- 访问面防护 ----------
+// 本机服务默认监听所有网卡（NAS/移动端要访问），所以三类请求必须挡：
+//   1) DNS rebinding：恶意网页把 evil.com 解析到 127.0.0.1，浏览器同源视角就"进了你家"。
+//      挡法：从回环地址进来的请求，Host 必须是 localhost/127.x/IP 字面量，是域名就拒。
+//   2) 任意网站跨源读库：CORS 原来是 *，任何页面都能 fetch /api/pages 整库。
+//      挡法：带 Origin 的请求只放行"同源"与浏览器扩展（chrome/moz-extension），
+//      其余不下发 ACAO（本机浏览器 / Node 客户端 / 原生 App 不带 Origin，照常工作；
+//      PAGEVAULT_ALLOW_ANY_ORIGIN=1 可恢复 *，给特殊反代场景留的后门）。
+//   3) 同步令牌泄露：/api/sync/token 原来是局域网任何人 GET 就给出全部权限的令牌，
+//      拿到就能读/删整库。挡法：只回环可见，或带上现有令牌才能看。
+
+function isLoopbackReq(req) {
+  const ip = String((req.socket && req.socket.remoteAddress) || '').replace(/^::ffff:/i, '');
+  return ip === '127.0.0.1' || ip === '::1' || /^127\./.test(ip);
+}
+// 响应出口对 syncServer.token 脱敏：令牌就是整库读写钥匙，
+// 不能随 GET /api/prefs（或 SSE prefs 广播）发给局域网任何设备。
+// 本机设置页要显示令牌，走 GET /api/sync/token（回环或持令牌才给）。
+// 深拷贝一份再删：调用方可能传进来的就是带引用计数的缓存对象，别改坏原件。
+function scrubToken(obj) {
+  const s = obj.syncServer;
+  if (s && typeof s === 'object' && Object.prototype.hasOwnProperty.call(s, 'token')) {
+    const c = Object.assign({}, obj);
+    c.syncServer = Object.assign({}, s);
+    delete c.syncServer.token;
+    return c;
+  }
+  return obj;
+}
+function hostOkForLoopback(req) {
+  const h = String(req.headers.host || '').trim().toLowerCase();
+  if (!h) return true; // 没 Host 头的老客户端不拦（HTTP/1.0，实际到不了这里）
+  let name = h;
+  const i = h.lastIndexOf(':');
+  if (i > 0 && h.indexOf(']') < i) name = h.slice(0, i); // 去端口（保留 IPv6 的 [..]）
+  name = name.replace(/^\[|\]$/g, '');
+  if (name === 'localhost' || name === '::1' || /^[0-9a-f:.]+$/i.test(name)) return true; // IP 字面量
+  return /^[0-9.]+$/.test(name); // v4 数字形态
+}
+function corsAllowedOrigin(req, origin) {
+  if (process.env.PAGEVAULT_ALLOW_ANY_ORIGIN === '1') return '*';
+  if (!origin) return '';               // 无 Origin：本机浏览器/Node/原生 App，按普通请求处理
+  if (/^(chrome|moz|safari-web|brave|edge)-extension:\/\//i.test(origin)) return origin; // 扩展保存
+  try {
+    const o = new URL(origin);
+    return String(o.host).toLowerCase() === String(req.headers.host || '').toLowerCase() ? origin : '';
+  } catch { return ''; }
 }
 
 function send(res, status, body, headers) {
-  res.writeHead(status, Object.assign({
-    'Access-Control-Allow-Origin': '*',
+  const h = Object.assign({
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS,DELETE,PATCH',
-    'Access-Control-Allow-Headers': 'Content-Type'
-  }, headers || {}));
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-PV-Meta'
+  }, headers || {});
+  // res._pvCors：'' = 不放行跨源（不下发 ACAO）；'*' 或具体 origin = 放行。见 corsAllowedOrigin
+  if (res._pvCors === undefined || res._pvCors) {
+    h['Access-Control-Allow-Origin'] = res._pvCors === undefined ? '*' : res._pvCors;
+  }
+  res.writeHead(status, h);
   res.end(body);
 }
 
@@ -832,6 +915,13 @@ async function fetchImage(targetUrl, referer) {
 }
 
 const server = http.createServer((req, res) => {
+  const origin = String(req.headers.origin || '');
+  res._pvCors = corsAllowedOrigin(req, origin);
+  // 防 DNS rebinding：连接来自回环、Host 却是外站域名的，直接 403
+  if (isLoopbackReq(req) && !hostOkForLoopback(req)) {
+    send(res, 403, JSON.stringify({ ok: false, error: 'invalid host (DNS rebinding protected)' }), { 'Content-Type': 'application/json; charset=utf-8' });
+    return;
+  }
   const url = new URL(req.url, `http://${req.headers.host}`);
   const p = url.pathname;
 
@@ -851,9 +941,11 @@ const server = http.createServer((req, res) => {
 
   // List pages (newest first), metadata only
   if (req.method === 'GET' && p === '/api/pages') {
+    // String(...) 兜底：老数据偶有 savedAt 缺失，直接 b.savedAt.localeCompare 会抛异常，
+    // 而这个同步抛错没被 catch，会把整个 fork 出来的 server 进程拖崩（列表一打开就闪）。
     const list = loadIndex()
       .map(({ file, ...m }) => m)
-      .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+      .sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
     send(res, 200, JSON.stringify(list), { 'Content-Type': 'application/json; charset=utf-8' });
     return;
   }
@@ -871,12 +963,13 @@ const server = http.createServer((req, res) => {
 
   // SSE 事件流
   if (req.method === 'GET' && p === '/api/events') {
-    res.writeHead(200, {
+    const sseHeaders = {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*'
-    });
+      'Connection': 'keep-alive'
+    };
+    if (res._pvCors === undefined || res._pvCors) sseHeaders['Access-Control-Allow-Origin'] = res._pvCors === undefined ? '*' : res._pvCors;
+    res.writeHead(200, sseHeaders);
     res.write(': connected\n\n');
     const client = { res };
     sseClients.add(client);
@@ -1143,6 +1236,9 @@ const server = http.createServer((req, res) => {
       // syncServer 由服务端自己维护（令牌不可从前端改写），原样保留
       const prev = loadPrefsRaw();      if (prev.syncServer) clean.syncServer = prev.syncServer;
       // 热榜来源配置也放在 prefs 里（多端共享），Cookie 只留在服务端
+      // ⚠️ 前端 PUT 回来的 prefs 是 /api/prefs 的公开快照（publicPrefs 不带 feeds）。
+      // 下面重建 clean.hotlist 时必须把现有 prefs 里除 sources 外的字段（尤其 feeds=订阅）
+      // 原样保住，否则「改个主题/字体」保存一次，RSS 订阅就整个消失（1.5.9 踩过的同类坑）。
       if (prefs.hotlist && typeof prefs.hotlist === 'object') {
         const hs = (prefs.hotlist.sources && typeof prefs.hotlist.sources === 'object') ? prefs.hotlist.sources : {};
         const cur = hotlistConfig();
@@ -1164,15 +1260,15 @@ const server = http.createServer((req, res) => {
             cookie: cur0.cookie
           };
         }
-        clean.hotlist = { sources: merged };
-        saveHotlistConfig({ sources: merged });
+        clean.hotlist = Object.assign({}, prev.hotlist || {}, { sources: merged });
+        saveHotlistConfig(clean.hotlist);
       } else {
         const old = loadPrefsRaw();
         if (old.hotlist) clean.hotlist = old.hotlist;
       }
-      try { fs.writeFileSync(PREFS_FILE, JSON.stringify(clean, null, 2)); } catch { /* 只读环境忽略 */ }
+      try { writeJsonAtomic(PREFS_FILE, JSON.stringify(clean, null, 2)); } catch { /* 只读环境忽略 */ }
       syncServerCache = null;
-      send(res, 200, JSON.stringify(Object.assign({}, publicPrefs(clean), { syncServer: ensureSyncServer() })), { 'Content-Type': 'application/json; charset=utf-8' });
+      send(res, 200, JSON.stringify(publicPrefs(clean)), { 'Content-Type': 'application/json; charset=utf-8' });
       restartSyncTimer();
       // 广播给其他端：主题/语言/字体等外观设置实时互相同步（不重载页面，只应用）
       // 注意走 publicPrefs：SSE 是明文的，别把热榜 Cookie 顺带发出去
@@ -1293,7 +1389,10 @@ const server = http.createServer((req, res) => {
     return;
   }
   // 本机作为同步源的令牌：设置面板显示/复制/重置
+  // ⚠️ 这个令牌等于整库读写权限，不能再让局域网随便 GET 走：
+  // 只有本机（回环）能裸看；其它设备必须已经带着正确令牌（老规矩 ?token= 也行）。
   if (req.method === 'GET' && p === '/api/sync/token') {
+    if (!isLoopbackReq(req) && !peerAuthorized(req, url)) { peerDeny(res); return; }
     const s = ensureSyncServer();
     const lan = [];
     try {
@@ -1320,6 +1419,8 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (req.method === 'POST' && p === '/api/sync/token/reset') {
+    // 重置令牌同理：非本机必须持旧令牌（防止局域网里任何人一句话让你所有对端断连）
+    if (!isLoopbackReq(req) && !peerAuthorized(req, url)) { peerDeny(res); return; }
     const s = resetSyncServerToken();
     log('sync server token rotated');
     send(res, 200, JSON.stringify({ ok: true, token: s.token, enabled: s.enabled !== false }), { 'Content-Type': 'application/json; charset=utf-8' });
@@ -1666,7 +1767,7 @@ const server = http.createServer((req, res) => {
     // 用异步读文件：以前这里是 readFileSync 循环，库一大（热榜天天进来）一次搜索
     // 就把事件循环堵住好几秒——期间所有端都卡着，连 SSE 心跳都发不出去。
     (async () => {
-      const list = loadIndex().sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+      const list = loadIndex().sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
       const results = [];
       const strip = (s) => s.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
         .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
