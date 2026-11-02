@@ -639,7 +639,7 @@
       backup: '备份', backupTip: '导出整库为 zip 备份；换电脑、重装系统后可以导入恢复。',
       wipeAll: '一键清空全部收藏', wipeTip: '一键清空全部已存页面（订阅源不动）。删除会同步到其它端，且无法撤销。',
       wipeEmpty: '库里已经没有页面了', wipeConfirm1: '确定要清空全部 {n} 条收藏吗？此操作无法撤销。',
-      wipeConfirm2: '最后确认：请输入 WIPE-ALL', wipeWrongCode: '暗号不对，已取消',
+      wipeConfirm2: '最后确认：真的要删除全部已存页面吗？删除会同步到所有设备，无法撤销。', wipeWrongCode: '暗号不对，已取消', wipeCancelled: '已取消',
       wipeDone: '已清空 {n} 条收藏', wipeFailed: '清空失败',
       exportBackup: '导出备份 (.zip)', importBackup: '导入备份',
       exportStarted: '备份下载已开始', importOk: (n) => `已导入 ${n} 个新页面`, importNone: '没有新页面可导入',
@@ -733,7 +733,7 @@
       backup: 'Backup', backupTip: 'Export the whole library as a zip; import it after moving to a new computer.',
       wipeAll: 'Wipe all pages', wipeTip: 'Delete every saved page (feeds are kept). The deletion syncs to other peers and cannot be undone.',
       wipeEmpty: 'The library is already empty', wipeConfirm1: 'Really delete all {n} saved pages? This cannot be undone.',
-      wipeConfirm2: 'Final check: type WIPE-ALL', wipeWrongCode: 'Wrong passphrase, cancelled',
+      wipeConfirm2: 'Final check: really delete every saved page? The deletion syncs to all devices and cannot be undone.', wipeWrongCode: 'Wrong passphrase, cancelled', wipeCancelled: 'Cancelled',
       wipeDone: 'Wiped {n} pages', wipeFailed: 'Wipe failed',
       exportBackup: 'Export backup (.zip)', importBackup: 'Import backup',
       exportStarted: 'Backup download started', importOk: (n) => `Imported ${n} new page(s)`, importNone: 'Nothing new to import',
@@ -1124,15 +1124,15 @@
     }
   }
 
-  // 一键清空（服务端 /api/pages/wipe）：两次确认 —— 第一次报数量，
-  // 第二次必须亲手输入暗号 WIPE-ALL，和接口约定一致，误触与跨站都到不了写入那步。
+  // 一键清空（服务端 /api/pages/wipe）：两次 confirm 确认。
+  // ⚠️ 第二步以前用 prompt() 要暗号，但 Electron 不实现 prompt() —— 桌面版点了
+  // 按钮会在那里静默抛错，什么都不会发生（用户实测点名）。confirm 双确认
+  // 在 Electron 和浏览器都可用；接口侧仍要求暗号 WIPE-ALL，防护没有降级。
   document.getElementById('wipeBtn').addEventListener('click', () => {
     const n = pages.length;
     if (!n) { toast(t('wipeEmpty')); return; }
     if (!confirm(t('wipeConfirm1').replace('{n}', n))) return;
-    const typed = prompt(t('wipeConfirm2'), '');
-    if (typed === null) return;
-    if (typed.trim() !== 'WIPE-ALL') { toast(t('wipeWrongCode'), 'err'); return; }
+    if (!confirm(t('wipeConfirm2'))) { toast(t('wipeCancelled')); return; }
     fetch('/api/pages/wipe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
