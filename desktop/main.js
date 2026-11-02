@@ -473,11 +473,47 @@ function applyThemeToWindow(win) {
   }
 }
 
+// 窗口尺寸记忆（用户点名）：把上次调好的窗口几何写进 window-state.json，
+// 下次启动原样恢复。最大化时存 getNormalBounds（"取消最大化"该回到的尺寸），
+// 恢复时先摆回 bounds 再 maximize。换过显示器导致旧坐标在屏外时，只丢坐标、
+// 保留尺寸，落回系统居中。
+const WSTATE_FILE = path.join(app.getPath('userData'), 'window-state.json');
+function loadWindowState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(WSTATE_FILE, 'utf8'));
+    if (!s || typeof s !== 'object') return null;
+    const w = Number(s.width) || 0, h = Number(s.height) || 0;
+    if (w < 820 || h < 600) return null; // 比窗口下限还小 = 记录坏了，宁可用默认
+    const out = { width: w, height: h, maximized: !!s.maximized };
+    const x = Number(s.x), y = Number(s.y);
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      const { screen } = require('electron');
+      // 与任一显示器工作区有 60px 以上的实际交集才算"看得见"，否则当过期坐标
+      const vis = screen.getAllDisplays().some(d => {
+        const a = d.workArea;
+        return x < a.x + a.width - 60 && x + w > a.x + 60 &&
+               y < a.y + a.height - 60 && y + h > a.y + 60;
+      });
+      if (vis) { out.x = x; out.y = y; }
+    }
+    return out;
+  } catch { return null; }
+}
+function writeWindowState(win) {
+  try {
+    if (!win || win.isDestroyed()) return;
+    const maximized = win.isMaximized();
+    const b = maximized ? win.getNormalBounds() : win.getBounds();
+    fs.writeFileSync(WSTATE_FILE, JSON.stringify({ ...b, maximized }));
+  } catch { /* 写失败顶多下次不记忆，不能拖累窗口操作 */ }
+}
+
 function createWindow(url) {
   const c = themeColors();
+  const saved = loadWindowState();
   const opts = {
-    width: 1280,
-    height: 800,
+    width: (saved && saved.width) || 1280,
+    height: (saved && saved.height) || 800,
     minWidth: 820,
     minHeight: 600,
     title: '网页收藏 · 我的网页库 v' + app.getVersion(),
@@ -488,6 +524,7 @@ function createWindow(url) {
       preload: path.join(__dirname, 'preload.js')
     }
   };
+  if (saved && Number.isFinite(saved.x)) { opts.x = saved.x; opts.y = saved.y; }
   // 运行时图标（Windows 任务栏等；macOS 用 bundle 里的 icns，自动忽略）
   for (const ic of [path.join(process.resourcesPath, 'AppIcon.ico'), path.join(__dirname, '..', 'AppIcon.ico')]) {
     try { if (fs.existsSync(ic)) { opts.icon = ic; break; } } catch { /* 忽略 */ }
@@ -497,6 +534,15 @@ function createWindow(url) {
   }
   const win = new BrowserWindow(opts);
   win.loadURL(url || `http://127.0.0.1:${PORT}/`);
+  if (saved && saved.maximized) win.maximize();
+  // 拖动/缩放期间防抖 400ms 落盘；close 时同步补一次，确保最后一刻的几何不丢。
+  let wstateTimer = null;
+  const queueWinState = () => {
+    clearTimeout(wstateTimer);
+    wstateTimer = setTimeout(() => writeWindowState(win), 400);
+  };
+  ['resize', 'move', 'maximize', 'unmaximize'].forEach(ev => win.on(ev, queueWinState));
+  win.on('close', () => { clearTimeout(wstateTimer); writeWindowState(win); });
   // 页面里点 chrome://extensions、http(s) 等链接 → 转交系统浏览器打开，不在 app 内开新窗
   win.webContents.setWindowOpenHandler(({ url: u }) => {
     try {

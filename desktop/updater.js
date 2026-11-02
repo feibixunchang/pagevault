@@ -287,16 +287,36 @@ Get-Process -Name 'WebVault' -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 1000
 Write-Log '旧进程已退出'
 
-# 2. 目录交换：全程只做 rename，不去覆盖正在被占用的 exe
+# 1b. 去掉"从互联网下载"标记：不解除的话 SmartScreen 会在启动时静默拦下新 exe
+try { Get-ChildItem -LiteralPath $Src -Recurse -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue } catch { }
+
+# 2. 目录交换：全程只做 rename，不去覆盖正在被占用的 exe。
+#    rename 带重试——杀软对新解压文件的即时扫描会短暂锁目录，一次失败不等于永远失败。
+function Rename-WithRetry([string]$from, [string]$newName) {
+  for ($i = 0; $i -lt 10; $i++) {
+    try { Rename-Item -LiteralPath $from -NewName $newName -ErrorAction Stop; return $true }
+    catch { if ($i -eq 9) { Write-Log ('rename 重试耗尽: ' + $_.Exception.Message) }; Start-Sleep -Milliseconds 500 }
+  }
+  return $false
+}
+function Move-WithRetry([string]$from, [string]$to) {
+  for ($i = 0; $i -lt 10; $i++) {
+    try { Move-Item -LiteralPath $from -Destination $to -ErrorAction Stop; return $true }
+    catch { if ($i -eq 9) { Write-Log ('move 重试耗尽: ' + $_.Exception.Message) }; Start-Sleep -Milliseconds 500 }
+  }
+  return $false
+}
 $swapped = $false
 try {
+  $ok1 = $true
   if (Test-Path -LiteralPath $Target) {
-    Rename-Item -LiteralPath $Target -NewName (Split-Path -Leaf $old) -ErrorAction Stop
-    Write-Log ('旧目录改名为 ' + (Split-Path -Leaf $old))
+    $ok1 = Rename-WithRetry $Target (Split-Path -Leaf $old)
+    if ($ok1) { Write-Log ('旧目录改名为 ' + (Split-Path -Leaf $old)) }
   }
-  Move-Item -LiteralPath $Src -Destination $Target -ErrorAction Stop
-  $swapped = $true
-  Write-Log '新版本已就位'
+  if ($ok1) {
+    $swapped = Move-WithRetry $Src $Target
+    if ($swapped) { Write-Log '新版本已就位' }
+  }
 } catch {
   Write-Log ('目录交换失败: ' + $_.Exception.Message)
 }
@@ -580,11 +600,29 @@ class Updater {
       // 路径全部走 -File 的参数，不拼进命令字符串 —— 中文用户名、空格、引号都不会出问题。
       // cwd 必须是别的目录：如果子进程的工作目录正好是待改名的 $Target，
       // Rename-Item 会报"文件正被另一个进程使用"。
-      const child = spawn('powershell.exe', [
+      // powershell 用 SystemRoot 绝对路径：个别精简环境/异常 PATH 下裸名找不到，
+      // 而且 spawn 的错误是异步的——以前不监听 error，脚本根本没起来 app 也照退，
+      // 用户看到的就是"下载完直接退出、什么都没发生"（Windows 端实测点名）。
+      const psExe = (() => {
+        const p = path.join(process.env.SystemRoot || 'C:\\Windows',
+          'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+        try { if (fs.existsSync(p)) return p; } catch { /* 落回裸名 */ }
+        return 'powershell.exe';
+      })();
+      const child = spawn(psExe, [
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
         '-File', ps1, '-Target', target, '-Src', src, '-Stage', stage, '-LogPath', logPath
       ], { detached: true, stdio: 'ignore', windowsHide: true, cwd: os.tmpdir() });
+      let spawnErr = null;
+      child.on('error', (e) => { spawnErr = e; });
       child.unref();
+      // ENOENT 之类的启动失败在下一 tick 就会报；等 300ms 足够兜住。
+      await new Promise(r => setTimeout(r, 300));
+      if (spawnErr) {
+        cleanupStage();
+        throw new Error('无法启动安装脚本（PowerShell）：' + (spawnErr.message || spawnErr) +
+          '。可手动下载覆盖：发布页 https://github.com/feibixunchang/pagevault/releases');
+      }
       this.emit({ status: 'ready', installedTo: target, logPath, newVersion: newVer });
       return { target, logPath };
     }
