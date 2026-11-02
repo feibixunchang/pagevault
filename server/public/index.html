@@ -114,10 +114,14 @@
   #settingsBackdrop { display:none; position:fixed; inset:0; background:rgba(15,23,42,.42); z-index:49; }
   #settingsBackdrop.open { display:block; }
   #settingsPanel { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
-    width:min(520px, calc((100vw - 24px) / var(--app-zoom)));
+    width:min(400px, calc((100vw - 24px) / var(--app-zoom)));
     max-height:calc(100vh / var(--app-zoom) - 72px);
     overflow-y:auto; overscroll-behavior:contain; background:var(--panel); border:1px solid var(--border);
     border-radius:14px; box-shadow:0 18px 48px rgba(0,0,0,.28); z-index:50; padding:18px 22px; }
+  /* 模态窗自带 ✕（用户点名）：绝对定位钉在右上角，不抢各分区 h2 的位置。 */
+  #settingsClose { position:absolute; top:8px; right:10px; border:none; background:none;
+    font-size:16px; line-height:1; color:var(--muted); cursor:pointer; padding:4px 6px; border-radius:6px; }
+  #settingsClose:hover { color:var(--accent); background:rgba(127,127,127,.12); }
   #settingsPanel.open { display:block; }
   #settingsPanel h2 { font-size:12px; color:var(--muted); margin:0 0 8px; font-weight:600; }
   #settingsPanel h2:not(:first-child) { margin-top:16px; }
@@ -369,6 +373,7 @@
   </div>
   <div id="settingsBackdrop"></div>
   <div id="settingsPanel">
+    <button id="settingsClose" title="关闭设置">✕</button>
     <h2 data-i18n="theme">外观</h2>
     <div class="seg" id="themeSeg">
       <button data-v="system" data-i18n="system">跟随系统</button>
@@ -1929,8 +1934,9 @@
     ev.stopPropagation();
     setOpenSettings(!settingsPanel.classList.contains('open'));
   });
-  // 模态窗用遮罩关闭；原来的「点面板外任意处即关」会误伤面板里的下拉/确认交互。
+  // 模态窗用遮罩或右上角 ✕ 关闭；原来的「点面板外任意处即关」会误伤面板里的下拉/确认交互。
   settingsBackdrop.addEventListener('click', () => setOpenSettings(false));
+  document.getElementById('settingsClose').addEventListener('click', () => setOpenSettings(false));
   document.getElementById('releaseBtn').addEventListener('click', () => {
     // Electron 里 window.open 会被 setWindowOpenHandler 转交系统浏览器；
     // 纯浏览器场景就是新开一个标签页，两端行为都对。
