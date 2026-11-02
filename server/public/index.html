@@ -108,14 +108,16 @@
   /* 设置按钮与下拉面板 */
   #settingsBtn { padding:5px 11px; border:1px solid var(--border); border-radius:8px; background:var(--btn-bg); font-size:21px; line-height:1.15; cursor:pointer; color:var(--btn-text); }
   #settingsBtn:hover { border-color:var(--accent); color:var(--accent); }
-  /* 设置居中模态窗。宽度取正常对话框尺寸 520px，并按 --app-zoom 折算：
-     Windows 高分屏缩放下 CSS px 会被放大，上一版写死 720 又没折算，左右直接被
-     裁掉（用户点名）；vw 同样要除以缩放才是窗口里真实可用的 CSS 宽度。 */
+  /* 设置居中模态窗。宽度写死正常对话框尺寸 400px —— 前两版想用
+     calc(... / var(--app-zoom)) 在 CSS 里折算，但 calc 的除数不接受 var()
+     （必须是字面数字），整条 width/max-height 被判废、回退成内容撑开的
+     近全宽（用户截图点名）。缩放折算由 fitSettingsPanel 用 JS 算，
+     CSS 只留无变量的安全兜底。 */
   #settingsBackdrop { display:none; position:fixed; inset:0; background:rgba(15,23,42,.42); z-index:49; }
   #settingsBackdrop.open { display:block; }
   #settingsPanel { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
-    width:min(400px, calc((100vw - 24px) / var(--app-zoom)));
-    max-height:calc(100vh / var(--app-zoom) - 72px);
+    width:400px; max-width:calc(100vw - 24px);
+    max-height:calc(100vh - 72px);
     overflow-y:auto; overscroll-behavior:contain; background:var(--panel); border:1px solid var(--border);
     border-radius:14px; box-shadow:0 18px 48px rgba(0,0,0,.28); z-index:50; padding:18px 22px; }
   /* 模态窗自带 ✕（用户点名）：绝对定位钉在右上角，不抢各分区 h2 的位置。 */
@@ -207,7 +209,7 @@
   .chkLine input { accent-color:var(--accent); }
 
   /* 设置面板（内容变多：账号同步 + 备份） */
-    #settingsPanel { width:calc((100vw - 24px) / var(--app-zoom)); padding:16px; }
+    #settingsPanel { padding:16px; }
   .panelTip { font-size:11px; color:var(--muted); line-height:1.65; margin:0 0 10px; }
   .field { display:flex; flex-direction:column; gap:4px; margin-bottom:9px; }
   .field label { font-size:11px; color:var(--muted); }
@@ -1922,6 +1924,8 @@
   function fitSettingsPanel() {
     const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-zoom')) || 1;
     settingsPanel.style.maxHeight = Math.max(260, Math.round(window.innerHeight / z) - 72) + 'px';
+    // 宽度也由这里按缩放折算：400 封顶、小窗时收进视口，CSS 的 var 折算不可信。
+    settingsPanel.style.width = Math.max(320, Math.min(400, Math.round(window.innerWidth / z) - 24)) + 'px';
   }
   window.addEventListener('resize', () => { if (settingsPanel.classList.contains('open')) fitSettingsPanel(); });
   const settingsBackdrop = document.getElementById('settingsBackdrop');

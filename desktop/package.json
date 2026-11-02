@@ -1,7 +1,7 @@
 {
   "name": "pagevault-desktop",
   "productName": "\u7f51\u9875\u6536\u85cf",
-  "version": "1.5.14",
+  "version": "1.5.15",
   "private": true,
   "description": "PageVault desktop (macOS/Windows/Linux) \u2014 wraps the sync server + reader in a real app window.",
   "main": "main.js",
