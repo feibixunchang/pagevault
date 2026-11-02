@@ -108,12 +108,14 @@
   /* 设置按钮与下拉面板 */
   #settingsBtn { padding:5px 11px; border:1px solid var(--border); border-radius:8px; background:var(--btn-bg); font-size:21px; line-height:1.15; cursor:pointer; color:var(--btn-text); }
   #settingsBtn:hover { border-color:var(--accent); color:var(--accent); }
-  /* 设置改成居中模态窗（用户点名：下拉面板高度快放不下）。加宽到 720 后
-     纵向内容明显变矮，超高时窗内自己滚；遮罩点空白处关闭。 */
+  /* 设置居中模态窗。宽度取正常对话框尺寸 520px，并按 --app-zoom 折算：
+     Windows 高分屏缩放下 CSS px 会被放大，上一版写死 720 又没折算，左右直接被
+     裁掉（用户点名）；vw 同样要除以缩放才是窗口里真实可用的 CSS 宽度。 */
   #settingsBackdrop { display:none; position:fixed; inset:0; background:rgba(15,23,42,.42); z-index:49; }
   #settingsBackdrop.open { display:block; }
   #settingsPanel { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
-    width:min(720px, calc(100vw - 28px)); max-height:calc(100vh / var(--app-zoom) - 72px);
+    width:min(520px, calc((100vw - 24px) / var(--app-zoom)));
+    max-height:calc(100vh / var(--app-zoom) - 72px);
     overflow-y:auto; overscroll-behavior:contain; background:var(--panel); border:1px solid var(--border);
     border-radius:14px; box-shadow:0 18px 48px rgba(0,0,0,.28); z-index:50; padding:18px 22px; }
   #settingsPanel.open { display:block; }
@@ -201,7 +203,7 @@
   .chkLine input { accent-color:var(--accent); }
 
   /* 设置面板（内容变多：账号同步 + 备份） */
-    #settingsPanel { width:calc(100vw - 24px); padding:16px; }
+    #settingsPanel { width:calc((100vw - 24px) / var(--app-zoom)); padding:16px; }
   .panelTip { font-size:11px; color:var(--muted); line-height:1.65; margin:0 0 10px; }
   .field { display:flex; flex-direction:column; gap:4px; margin-bottom:9px; }
   .field label { font-size:11px; color:var(--muted); }
