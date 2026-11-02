@@ -18,7 +18,7 @@ const { pageTitle, usableTitle, looksLikeGatePage } = require('./titles');
 const { parseFeed, parseOpml } = require('./sources');
 const { urlKey, sameUrl } = require('./urlkey.js');
 
-const VERSION = '1.5.10';
+const VERSION = '1.5.11';
 const PORT = process.env.PORT || 8731;
 // 运行形态：desktop（Electron 壳） / docker（容器） / web（裸跑 node）。
 // 各端据此显示自己的名字与版本号，用户在状态栏一眼能看出连的是哪个端。
@@ -1804,6 +1804,35 @@ const server = http.createServer((req, res) => {
     send(res, 200, JSON.stringify({ ok: true }), { 'Content-Type': 'application/json; charset=utf-8' });
     broadcastDeleted(id);
     sync.schedule(syncConfig());
+    return;
+  }
+
+  // 一键清空整库（用户点名：逐条删太慢）。安全口径与单条删除一致但更严：
+  //  1) 存档页脚本本来就够不到这里 —— 阅读 iframe 注入 CSP connect-src 'none'，
+  //     且页面在返回前已被 slimPageForReading 剥掉脚本；
+  //  2) 这里再要求请求体带明确暗号 WIPE-ALL，跨站表单/误触都构造不出来。
+  // 每条删除都记 tombstone，同步对端随后会跟着删净、不会「复活」。订阅源不动。
+  if (req.method === 'POST' && p === '/api/pages/wipe') {
+    readBody(req, 64 * 1024, (err, buf) => {
+      if (err) { send(res, 413, JSON.stringify({ error: 'payload too large' }), { 'Content-Type': 'application/json' }); return; }
+      let payload = {};
+      try { payload = JSON.parse(String(buf || '')); } catch { /* 空体/坏体：留给暗号检查拒绝 */ }
+      if (payload.confirm !== 'WIPE-ALL') {
+        send(res, 400, JSON.stringify({ error: "confirm must be 'WIPE-ALL'" }), { 'Content-Type': 'application/json; charset=utf-8' });
+        return;
+      }
+      const doomed = loadIndex();
+      let n = 0;
+      for (const meta of doomed) {
+        try { fs.unlinkSync(path.join(DATA_DIR, meta.file)); } catch { /* 文件可能已不存在 */ }
+        addDeletion(meta.id);
+        n++;
+      }
+      saveIndex([]);
+      send(res, 200, JSON.stringify({ ok: true, deleted: n }), { 'Content-Type': 'application/json; charset=utf-8' });
+      for (const meta of doomed) broadcastDeleted(meta.id);
+      sync.schedule(syncConfig());
+    });
     return;
   }
 

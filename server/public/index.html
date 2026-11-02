@@ -465,6 +465,10 @@
       <button id="importBtn" data-i18n="importBackup">导入备份</button>
     </div>
     <input type="file" id="importFile" accept=".zip,application/zip" style="display:none" />
+    <p class="panelTip" data-i18n="wipeTip">一键清空全部已存页面（订阅源不动）。删除会同步到其它端，且无法撤销。</p>
+    <div class="btnrow">
+      <button id="wipeBtn" data-i18n="wipeAll">一键清空全部收藏</button>
+    </div>
     <h2 data-i18n="aboutUpdate">关于与更新</h2>
     <p class="panelTip" id="aboutVerLine"></p>
     <div class="btnrow">
@@ -633,6 +637,10 @@
       syncResult: (s) => `同步完成：拉取 ${s.pulled} · 推送 ${s.pushed} · 删除 ${s.deleted}`,
       // 备份
       backup: '备份', backupTip: '导出整库为 zip 备份；换电脑、重装系统后可以导入恢复。',
+      wipeAll: '一键清空全部收藏', wipeTip: '一键清空全部已存页面（订阅源不动）。删除会同步到其它端，且无法撤销。',
+      wipeEmpty: '库里已经没有页面了', wipeConfirm1: '确定要清空全部 {n} 条收藏吗？此操作无法撤销。',
+      wipeConfirm2: '最后确认：请输入 WIPE-ALL', wipeWrongCode: '暗号不对，已取消',
+      wipeDone: '已清空 {n} 条收藏', wipeFailed: '清空失败',
       exportBackup: '导出备份 (.zip)', importBackup: '导入备份',
       exportStarted: '备份下载已开始', importOk: (n) => `已导入 ${n} 个新页面`, importNone: '没有新页面可导入',
       importFail: (e) => '导入失败：' + e
@@ -723,6 +731,10 @@
       syncResult: (s) => `Sync done: pulled ${s.pulled} · pushed ${s.pushed} · deleted ${s.deleted}`,
       // Backup
       backup: 'Backup', backupTip: 'Export the whole library as a zip; import it after moving to a new computer.',
+      wipeAll: 'Wipe all pages', wipeTip: 'Delete every saved page (feeds are kept). The deletion syncs to other peers and cannot be undone.',
+      wipeEmpty: 'The library is already empty', wipeConfirm1: 'Really delete all {n} saved pages? This cannot be undone.',
+      wipeConfirm2: 'Final check: type WIPE-ALL', wipeWrongCode: 'Wrong passphrase, cancelled',
+      wipeDone: 'Wiped {n} pages', wipeFailed: 'Wipe failed',
       exportBackup: 'Export backup (.zip)', importBackup: 'Import backup',
       exportStarted: 'Backup download started', importOk: (n) => `Imported ${n} new page(s)`, importNone: 'Nothing new to import',
       importFail: (e) => 'Import failed: ' + e
@@ -1098,8 +1110,7 @@
   }
 
   // 从列表与视图里移除（本地或 SSE 触发）
-  function applyDeleted(id) {
-    pages = pages.filter(p => p.id !== id);
+  function applyDeleted(id) {    pages = pages.filter(p => p.id !== id);
     render(searchEl.value);
     if (currentId === id) {
       currentId = null;
@@ -1112,6 +1123,40 @@
       document.getElementById('exp').style.display = 'none';
     }
   }
+
+  // 一键清空（服务端 /api/pages/wipe）：两次确认 —— 第一次报数量，
+  // 第二次必须亲手输入暗号 WIPE-ALL，和接口约定一致，误触与跨站都到不了写入那步。
+  document.getElementById('wipeBtn').addEventListener('click', () => {
+    const n = pages.length;
+    if (!n) { toast(t('wipeEmpty')); return; }
+    if (!confirm(t('wipeConfirm1').replace('{n}', n))) return;
+    const typed = prompt(t('wipeConfirm2'), '');
+    if (typed === null) return;
+    if (typed.trim() !== 'WIPE-ALL') { toast(t('wipeWrongCode'), 'err'); return; }
+    fetch('/api/pages/wipe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: 'WIPE-ALL' }),
+    })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })).catch(() => ({ ok: false, d: {} })))
+      .then(({ ok, d }) => {
+        if (!ok || !d.ok) { toast((d && d.error) || t('wipeFailed'), 'err'); return; }
+        pages = [];
+        render(searchEl.value);
+        if (currentId !== null) {
+          currentId = null;
+          readerOn = false;
+          readerArticle = null;
+          frame.src = 'about:blank';
+          viewmeta.textContent = t('deleted');
+          document.getElementById('del').style.display = 'none';
+          document.getElementById('reader').style.display = 'none';
+          document.getElementById('exp').style.display = 'none';
+        }
+        toast(t('wipeDone').replace('{n}', d.deleted || 0));
+      })
+      .catch(() => toast(t('wipeFailed'), 'err'));
+  });
 
   document.getElementById('del').addEventListener('click', () => deletePage(currentId));
 
