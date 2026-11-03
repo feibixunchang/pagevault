@@ -93,5 +93,6 @@ jobs:
             gh release upload "$TAG" "$f" --clobber
           done
           echo "== 回查 =="
-          gh release view "$TAG" --json tagName,prerelease,draft,assets \
-            --jq '{tag:.tagName, prerelease:.prerelease, draft:.draft, assets:[.assets[]|{name,size}]}'
+          # 注意：gh release view 的 --json 只接受它自己那组字段（assets/prerelease/draft
+          # 不在其中，给了会打印字段清单并 exit 1，把整个步骤判失败）
+          gh release view "$TAG" | head -40
