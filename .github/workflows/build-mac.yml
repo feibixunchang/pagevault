@@ -1,0 +1,88 @@
+name: Build macOS packages
+
+# macOS 产物必须在 mac runner 上构建：build-app.sh 末尾的 ad-hoc 签名是 Apple
+# Silicon 的硬要求（未签名直接被判"已损坏"），dmg 也依赖 hdiutil。
+# v1.5.21/22 的 mac 资产是 Windows 侧全自动化后遗漏的缺口（应用内更新在 mac
+# 上找 WebVault-<ver>-macos-arm64.zip 会 404），本工作流把这块补齐成自动。
+#
+# ⚠️ electron 二进制的 npm postinstall 下载走 npmmirror：GitHub 直连偶发 TLS
+# 断流（本机与 runner 都遇到过），镜像源稳定且快。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要上传到的 release tag（留空则用 desktop/package.json 的版本）'
+        required: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: macOS arm64 packages
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装依赖
+        working-directory: desktop
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+        run: npm ci --no-audit --no-fund
+
+      - name: 打包（zip 供应用内更新 + dmg 供手动安装）
+        working-directory: desktop
+        run: bash build-app.sh && bash build-release-mac.sh
+
+      - name: 产物自检（zip 顶层必须是 .app，更新器按此解压替换）
+        working-directory: desktop
+        run: |
+          unzip -l dist/WebVault-*-macos-arm64.zip | head -8
+          unzip -l dist/WebVault-*-macos-arm64.zip | grep -q "\.app/Contents/MacOS/" || { echo "zip 结构不对：顶层没有 .app"; exit 1; }
+          ls -lh dist/WebVault-*-macos-arm64.*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-packages
+          path: |
+            desktop/dist/WebVault-*-macos-arm64.zip
+            desktop/dist/WebVault-*-macos-arm64.dmg
+          if-no-files-found: error
+
+      - name: 上传到 GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="$INPUT_TAG"
+          if [ -z "$TAG" ]; then
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              TAG="${GITHUB_REF_NAME}"
+            else
+              TAG="v$(node -p "require('./desktop/package.json').version")"
+            fi
+          fi
+          echo "上传到 $TAG"
+          # 与 win/linux 工作流并发跑：release 不存在就建；创建撞车（别的
+          # runner 先建了）不算错，后面的 upload --clobber 才是关键。
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --prerelease --title "$TAG" \
+              --notes "macOS 由 mac runner 原生构建（ad-hoc 签名 + hdiutil dmg）。" || true
+          fi
+          shopt -s nullglob
+          for f in desktop/dist/WebVault-*-macos-arm64.zip desktop/dist/WebVault-*-macos-arm64.dmg; do
+            echo "-> $(basename "$f")"
+            gh release upload "$TAG" "$f" --clobber
+          done
+          echo "== 回查 =="
+          gh release view "$TAG" | head -30
