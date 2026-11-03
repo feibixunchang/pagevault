@@ -78,23 +78,46 @@ pagevault/
 
 ## Windows 端
 
-在 Mac 上一键跨平台构建（纯文件组装，无需 wine）：
+便携包可以在 Mac 上跨平台组装（纯文件操作，无需 wine）：
 
 ```bash
-cd desktop && bash build-win.sh
+cd desktop && bash build-win.sh      # 只产出 zip
 ```
 
-产物 `desktop/dist/WebVault-<版本>-win32-x64.zip`（约 106MB，包内纯英文文件名，避免解压乱码），
-拷到 Windows **完整解压**后使用（包内 `README.txt` 有完整步骤）：
+**NSIS 安装包（`WebVault-Setup-<版本>.exe`）必须在 Windows 上打**，两个入口：
 
-1. 解压到任意目录（建议纯英文路径，如 `D:\WebVault`）——不要在 zip 预览窗口里直接双击 exe
-2. **双击 `install.cmd` 一键安装**（用户级，不需要管理员）：自动装到
-   `%LOCALAPPDATA%\Programs\WebVault`、创建桌面/开始菜单快捷方式、注册"设置→应用"卸载入口，
-   之后可像正常软件一样启动/卸载（`uninstall.cmd` 或系统设置里卸载）。
-   也可以不安装，直接双击 `WebVault.exe` 便携使用，功能完全一样
+```powershell
+# 本机（Windows，用户级、免管理员）
+powershell -NoProfile -ExecutionPolicy Bypass -File desktop\build-win.ps1
+```
+
+或推 `v*` tag 触发 `.github/workflows/build-win.yml`（windows-latest），产物自动传到 Release。
+
+> ⚠️ **别再在 macOS 上用 electron-builder + prepackaged 打 NSIS。** v1.5.19/v1.5.20
+> 就是这么坏的：NSIS 把应用存成尾部 7z 载荷，装机时靠 Nsis7z 插件解压，跨平台打包
+> 插件链没接上，而 NSIS 对插件调用失败是**静默跳过**——向导照样写注册表、建快捷方式、
+> 显示"安装完成"，却一个程序文件都没解压，用户端表现为"装上了但打不开"。
+> `build-win.ps1` 与 CI 都会在打包后**真的把 Setup 装一遍**（校验文件数/字节数、
+> 快捷方式、卸载项、拉起服务端打 `/api/status`、再静默卸载确认清理），从根上挡住这类包。
+
+发布件（文件名都带版本号）：
+
+| 文件 | 用途 |
+|---|---|
+| `WebVault-<版本>-win32-x64.zip` | 免安装便携包；内含 `install.cmd` 也可一键安装 |
+| `WebVault-Setup-<版本>.exe` | 向导式安装包（用户级、免管理员、带卸载项） |
+
+用户侧步骤（`README.txt` 里有完整版）：
+
+1. **安装版**：双击 `WebVault-Setup-<版本>.exe` → 按向导装（默认装到当前用户的
+   `%LOCALAPPDATA%\Programs\`，不需要管理员），桌面/开始菜单自动建 `WebVault` 快捷方式，
+   "设置→应用"里可卸载；之后应用内检查更新会自动升级
+2. **免安装**：**完整解压** zip 到任意英文路径（如 `D:\WebVault`）——不要在资源管理器的
+   zip 预览窗口里直接双击 exe，那样伴生文件不在同目录会报 ICU 错误且无窗口；
+   然后双击 `install.cmd` 一键安装，或直接双击 `WebVault.exe` 便携使用，功能完全一样
 3. 未买代码签名，SmartScreen 提示"未知发布者"→「更多信息」→「仍要运行」
 4. 数据存 `%APPDATA%\pagevault-desktop`，端口 8731，与 Mac 版协议完全一致
-5. **浏览器扩展已随安装包分发**：解压目录下的 `extension/` 文件夹就是扩展，
+5. **浏览器扩展已随安装包分发**：安装目录下的 `extension/` 文件夹就是扩展，
    在 `chrome://extensions` 开开发者模式 →「加载已解压的扩展程序」→ 选它即可；
    也可以在阅读器里点底部状态栏的「安装扩展」按弹窗步骤操作
 6. Windows 版图标已嵌进 exe，与 Mac 版完全一致
@@ -102,6 +125,17 @@ cd desktop && bash build-win.sh
 **双击打不开？** 按 Release 说明里的排查清单：SmartScreen「更多信息→仍要运行」→
 右键 exe 属性「解除锁定」→ 临时退出杀毒软件 → 看 `%APPDATA%\pagevault-desktop\desktop.log`
 → PowerShell 里 `.\WebVault.exe` 直跑看报错。启动失败时窗口会显示带日志路径的错误页，不会闪退。
+
+排查顺序上先确认**不是安装包缺文件**：安装目录下应该有一个约 180 MB 的 `WebVault.exe`
+加 `resources\`、`locales\` 等，总计约 260 MB / 113 个文件。如果目录里只剩一个 141 KB 的
+`Uninstall WebVault.exe`，那就是装到了坏包（见上面的 NSIS 警告），换 1.5.21+ 的 Setup 重装。
+
+> 顺带一个诊断陷阱：`main.js` 用 `fork(..., { silent: false })` 起内置服务端，
+> 子进程继承父进程的 stdout。若从终端**接管管道**启动应用，脚本一退出管道就成死管，
+> 服务端写下一条日志时会以 `code = 1` 崩掉（`desktop.log` 里只留
+> `server process exited, code = 1`，没有任何报错原因）。这是**假崩溃**，
+> 从资源管理器双击启动不会发生。要抓真报错就单独跑
+> `ELECTRON_RUN_AS_NODE=1 WebVault.exe resources\server\server.js`。
 
 ## Linux 端
 

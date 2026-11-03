@@ -1,0 +1,97 @@
+name: Build Windows packages
+
+# Windows 的 NSIS 安装包必须在 Windows 上打包。
+#
+# 以前它在 macOS 上用 electron-builder + prepackaged 跨平台产出，结果 v1.5.20 出了
+# 严重事故：NSIS 的安装逻辑要靠 Nsis7z 插件（7z.dll）在装机时解压尾部 7z 载荷，
+# 跨平台打包时插件没接上，而 NSIS 对"插件调用失败"是**静默跳过**的——于是向导把
+# 外壳复制成 Uninstall WebVault.exe、写好 HKCU 卸载项、建好桌面/开始菜单快捷方式、
+# 显示"安装完成"，却一个程序文件都没解压出来。用户看到的就是"装上了但打不开"，
+# 注册表还声称装了 266715 KB（实际目录里只有 141002 字节的外壳）。
+#
+# 这个 workflow 除了打包，还会在 Windows runner 上**真的把 Setup 装一遍**：
+# 校验载荷文件数与字节数、校验快捷方式与卸载项、拉起内置服务端打 /api/status、
+# 最后静默卸载并确认清理干净。任何一步不过就直接让 CI 失败，
+# 从此"装了打不开"的包不可能再被静默发布出去。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要上传到的 release tag（留空则用 desktop/package.json 的版本，如 v1.5.21）'
+        required: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装 electron-builder
+        run: npm ci --no-audit --no-fund
+        working-directory: desktop
+
+      - name: 打包（zip + NSIS Setup）并真装一遍验收
+        shell: pwsh
+        run: |
+          ./desktop/build-win.ps1
+          if ($LASTEXITCODE -ne 0) { throw "build-win.ps1 failed with $LASTEXITCODE" }
+
+      - name: 产物清单与哈希
+        shell: pwsh
+        run: |
+          Get-ChildItem desktop/dist -File |
+            Where-Object { $_.Extension -in '.zip', '.exe', '.yml', '.blockmap' } |
+            ForEach-Object {
+              $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+              "{0,-44} {1,10:N1} MB  sha256:{2}" -f $_.Name, ($_/1MB), $h
+            }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: |
+            desktop/dist/WebVault-Setup-*.exe
+            desktop/dist/WebVault-*-win32-x64.zip
+          if-no-files-found: error
+
+      - name: 上传到 GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="$INPUT_TAG"
+          if [ -z "$TAG" ]; then
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              TAG="${GITHUB_REF_NAME}"
+            else
+              TAG="v$(node -p "require('./desktop/package.json').version")"
+            fi
+          fi
+          echo "上传到 $TAG"
+          # release 不存在就先建（prerelease：等 macOS 资产补齐后再转正式，避免 Mac 端
+          # 自动更新去 latest 找 1.5.21 的 mac 包而 404）
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --prerelease \
+              --title "$TAG" \
+              --notes "Windows 安装包改由 Windows runner 原生打包，并在 CI 里真实安装验收（修复 v1.5.20 向导不解压载荷导致「装了打不开」的问题）。macOS / Docker 资产由本机构建后补传。"
+          fi
+          shopt -s nullglob
+          for f in desktop/dist/WebVault-Setup-*.exe desktop/dist/WebVault-*-win32-x64.zip; do
+            echo "-> $(basename "$f")"
+            gh release upload "$TAG" "$f" --clobber
+          done
+          echo "== 回查 =="
+          gh release view "$TAG" --json tagName,prerelease,draft,assets \
+            --jq '{tag:.tagName, prerelease:.prerelease, draft:.draft, assets:[.assets[]|{name,size}]}'

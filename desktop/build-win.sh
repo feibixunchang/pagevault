@@ -139,14 +139,27 @@ echo "     「更多信息」→「仍要运行」）"
 echo "  3. 数据默认存 %APPDATA%\\pagevault-desktop，端口 8731"
 echo "  4. Chrome/Edge 加载 pagevault/extension 即可保存"
 
-# 5. NSIS 安装包（安装版路线：默认装 %LOCALAPPDATA%\Programs\WebVault，带快捷方式
-#    与卸载项；应用内更新对"安装版"优先走它，见 updater.js assetNames 的判定）。
-#    ⚠️ 本机 node 24 与 electron-builder 24 的 CLI 参数解析不兼容（yargs 把脚本
-#    路径自己当未知参数），必须走编程接口；targets 传数组，传字符串会被逐字符拆。
-( cd "$DESKTOP" && node -e "
-const path = require('path');
-const { build } = require('electron-builder');
-build({ prepackaged: path.resolve('dist/WebVault-win32-x64'), win: ['nsis'] })
-  .then(() => console.log('NSIS OK'))
-  .catch(e => { console.error('NSIS FAIL:', (e && e.message) || e); process.exit(1); });
-" )
+# 5. NSIS 安装包：**只能在 Windows 上打**，本脚本不再尝试跨平台产出。
+#
+#    踩过的坑（v1.5.19 / v1.5.20 两版安装包都是这么坏的）：
+#    NSIS 安装器把应用存成尾部的 7z 载荷，装机时靠 Nsis7z 插件（7z.dll）解压。
+#    在 macOS 上用 electron-builder + prepackaged 打出来的包，插件链路没接上，
+#    而 NSIS 对"插件 DLL 调不到"是**静默跳过**：不报错、不弹窗、退出码 0。
+#    于是向导照样复制外壳当卸载器、写 HKCU 卸载项、建桌面+开始菜单快捷方式、
+#    显示"安装完成"，却一个程序文件都没落地 —— 用户端表现为"装上了但打不开"，
+#    注册表还写着 EstimatedSize=266715 KB，而目录里只有 141002 字节的卸载外壳。
+#    （/S 静默模式同样是空转：进程秒退、什么都不写。）
+#
+#    正确做法：Windows runner 原生打包 + 装一遍验收。
+#      CI： .github/workflows/build-win.yml（推 v* tag 自动跑，产物直接传 Release）
+#      本机：powershell -File desktop\build-win.ps1
+#    两条路都会在打包后真的执行 Setup、校验载荷文件数/字节数、校验快捷方式与卸载项、
+#    拉起内置服务端打 /api/status、再静默卸载确认清理干净。
+    case "$(uname -s)" in
+      Linux*) echo "NSIS 需要在 Windows 上打包。Linux 上请走 .github/workflows/build-win.yml。" ;;
+      Darwin*) echo "NSIS 已禁止在 macOS 上跨平台打包（会让装好的包缺主程序，见本文件注释）。"
+               echo "请改跑：GitHub Actions 的 Build Windows packages，或在 Windows 上跑 desktop\\build-win.ps1。"
+               echo "本脚本到此只产出便携 zip：$DESKTOP/dist/$ZIPNAME" ;;
+      MINGW*|MSYS*|CYGWIN*|Windows*)
+               echo "检测到 Windows 环境，请改用 desktop/build-win.ps1（含安装验收）" ;;
+    esac

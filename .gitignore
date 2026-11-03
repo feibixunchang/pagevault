@@ -37,3 +37,9 @@ nohup.out
 # 瀹夊崜鏋勫缓浜х墿
 android/.build/
 android/dist/
+
+# vendor 的 resedit / pe-library 必须完整入库：上面的 node_modules/ 与 dist/ 两条规则
+# 会误伤 desktop/vendor/node_modules/*/dist/** （v1.5.20 就是这样漏了 resedit/dist/data，
+# 新克隆跑 set-win-icon.mjs 直接 ERR_MODULE_NOT_FOUND，CI 必挂）。
+!desktop/vendor/**
+
