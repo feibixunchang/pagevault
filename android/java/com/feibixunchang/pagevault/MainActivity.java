@@ -70,6 +70,10 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(this, HotListActivity.class)));
         findViewById(R.id.btnRefresh).setOnClickListener(v -> load());
 
+        // 顶部两个入口：与网页版 / 桌面端放在同一位置（搜索框左边），行为也对齐
+        findViewById(R.id.btnCheckUpdate).setOnClickListener(v -> openReleasePage());
+        findViewById(R.id.btnWipeAll).setOnClickListener(v -> confirmWipeAll());
+
         tabAll.setOnClickListener(v -> { onlyStarred = false; render(); });
         tabStar.setOnClickListener(v -> { onlyStarred = true; render(); });
 
@@ -239,6 +243,61 @@ public class MainActivity extends Activity {
                     });
                 })
                 .show();
+    }
+
+    /**
+     * 顶部「检查更新」。安卓端没有应用内自更新通道（装 APK 必须用户自己确认），
+     * 所以点它的动作是：先明确报出当前版本，再把发布页打开——绝不静默无反馈，
+     * 和网页版 / Docker 端那个按钮的行为一致。
+     */
+    private void openReleasePage() {
+        Toast.makeText(this, getString(R.string.update_checking) + " v" + BuildConfig.VERSION,
+                Toast.LENGTH_SHORT).show();
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://github.com/feibixunchang/pagevault/releases")));
+        } catch (Exception e) {
+            // 没装浏览器 / 无法处理 http 链接时，至少把网址说清楚
+            Toast.makeText(this, R.string.update_open_release, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * 顶部「删除全部收藏」：和网页版同一套双确认，接口侧仍要求暗号 WIPE-ALL。
+     * 少任何一步都删不掉——整库清空是不可撤销的，而且删除会通过墓碑同步到其它端。
+     */
+    private void confirmWipeAll() {
+        final int n = all.length();
+        if (n == 0) {
+            Toast.makeText(this, R.string.wipe_empty, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setMessage(getString(R.string.wipe_confirm1, n))
+                .setNegativeButton(R.string.add_cancel, null)
+                .setPositiveButton(R.string.wipe_all, (d, w) ->
+                        new AlertDialog.Builder(MainActivity.this)
+                                .setMessage(R.string.wipe_confirm2)
+                                .setNegativeButton(R.string.add_cancel, (d2, w2) -> Toast.makeText(
+                                        MainActivity.this, R.string.wipe_cancelled, Toast.LENGTH_SHORT).show())
+                                .setPositiveButton(R.string.wipe_all, (d3, w3) -> doWipe())
+                                .show())
+                .show();
+    }
+
+    private void doWipe() {
+        Api.async("POST", "/api/pages/wipe", "{\"confirm\":\"WIPE-ALL\"}", r -> {
+            if (!r.ok()) {
+                Toast.makeText(this, R.string.wipe_failed, Toast.LENGTH_LONG).show();
+                return;
+            }
+            int deleted = 0;
+            try {
+                deleted = new JSONObject(r.body).optInt("deleted", 0);
+            } catch (Exception ignored) { }
+            Toast.makeText(this, getString(R.string.wipe_done, deleted), Toast.LENGTH_SHORT).show();
+            load();
+        });
     }
 
     static String hostOf(String url) {

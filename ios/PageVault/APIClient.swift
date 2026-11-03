@@ -118,6 +118,24 @@ final class APIClient {
     func delete(id: String) async throws {
         _ = try await fetch("/api/pages/" + id, method: "DELETE")
     }
+    /// 清空整库（服务端 /api/pages/wipe）。暗号 WIPE-ALL 由服务端校验；
+    /// 删除会以墓碑形式同步到其它端，**不可撤销**——所以调用方必须先做两次确认，
+    /// 这里不弹窗，问不问归界面层管。
+    func wipeAll() async throws -> Int {
+        guard let url = URL(string: "/api/pages/wipe", relativeTo: base) else {
+            throw APIError(message: "服务端地址无效")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 30
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Data("{\"confirm\":\"WIPE-ALL\"}".utf8)
+        if !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let data = try await send(req)
+        struct Reply: Decodable { var deleted: Int? }
+        return (try? JSONDecoder().decode(Reply.self, from: data))?.deleted ?? 0
+    }
 
     /// 手机端收藏：只把网址交给服务端，由服务端去抓页面。
     /// 手机上拿不到浏览器扩展那种「整页 DOM」，这是唯一可行的保存方式。

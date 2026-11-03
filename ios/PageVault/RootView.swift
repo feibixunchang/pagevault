@@ -11,6 +11,9 @@ struct RootView: View {
     @State private var showHot = false
     @State private var showFeeds = false
     @State private var addPrefillURL = ""
+    @State private var showWipeConfirm = false
+    @State private var showWipeFinal = false
+    @State private var showUpdateInfo = false
     @State private var addAutoSave = false
 
     private var filtered: [PageMeta] {
@@ -47,6 +50,24 @@ struct RootView: View {
                         Image(systemName: "plus")
                     }
                     .accessibilityLabel("保存文章")
+                }
+                // 搜索框左边的两个常驻入口，与网页版 / 桌面端位置一致
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showUpdateInfo = true
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    .accessibilityLabel("检查更新")
+                }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showWipeConfirm = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .accessibilityLabel("删除全部收藏")
+                    .disabled(store.pages.isEmpty)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -88,6 +109,31 @@ struct RootView: View {
                 FeedsView()
                     .environmentObject(store)
             }
+
+            .alert("检查更新", isPresented: $showUpdateInfo) {
+                Button("打开发布页") {
+                    if let u = URL(string: "https://github.com/feibixunchang/pagevault/releases") {
+                        UIApplication.shared.open(u)
+                    }
+                }
+                Button("好", role: .cancel) {}
+            } message: {
+                Text("当前版本 \(iosVersionString)。\niOS 端是自签名 App，没有应用内自动更新通道——到发布页确认新版本后，用 Xcode 重新 ⌘R 装一次即可；收藏存在服务端，不会丢。")
+            }
+            .alert("删除全部收藏", isPresented: $showWipeConfirm) {
+                Button("取消", role: .cancel) {}
+                Button("继续", role: .destructive) { showWipeFinal = true }
+            } message: {
+                Text("确定要清空全部 \(store.pages.count) 条收藏吗？此操作无法撤销。")
+            }
+            .alert("最后确认", isPresented: $showWipeFinal) {
+                Button("取消", role: .cancel) {}
+                Button("删除全部", role: .destructive) {
+                    Task { await store.wipeAll() }
+                }
+            } message: {
+                Text("真的要删除全部已存页面吗？删除会同步到所有设备，无法撤销。")
+            }
             .task {
                 // 有缓存也要刷一次。这里原先是 `if store.pages.isEmpty { refresh() }`，
                 // 结果冷启动永远只显示上次的缓存：在电脑/网页上刚改过的标题、刚存进去的
@@ -105,6 +151,11 @@ struct RootView: View {
                 Task { await store.refresh(showSpinner: false) }
             }
         }
+    }
+
+    /// 弹窗里给自己看版本号：CFBundleShortVersionString 由 stamp-version.js 统一维护
+    private var iosVersionString: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "?"
     }
 
     private func refreshNavBarFont() {

@@ -335,6 +335,8 @@
     <h1>网页收藏</h1>
     <span class="count" id="count"></span>
     <button id="onlyStarred" title="只看收藏的页面">☆ 收藏</button>
+    <button id="checkUpdBtn" title="检查有没有新版本">⬆ 检查更新</button>
+    <button id="wipeTopBtn" title="删除全部已存页面（订阅源不动）">🗑 删除全部收藏</button>
     <input id="search" placeholder="搜索标题或链接…" />
     <button id="addBtn" title="粘贴链接保存">＋</button>
     <button id="openWeb" style="display:none" title="在系统默认浏览器里打开网页版">🌐 网页版</button>
@@ -658,7 +660,16 @@
       wipeAll: '一键清空全部收藏', wipeTip: '一键清空全部已存页面（订阅源不动）。删除会同步到其它端，且无法撤销。',
       wipeEmpty: '库里已经没有页面了', wipeConfirm1: '确定要清空全部 {n} 条收藏吗？此操作无法撤销。',
       wipeConfirm2: '最后确认：真的要删除全部已存页面吗？删除会同步到所有设备，无法撤销。', wipeWrongCode: '暗号不对，已取消', wipeCancelled: '已取消',
-      wipeDone: '已清空 {n} 条收藏', wipeFailed: '清空失败',
+       wipeDone: '已清空 {n} 条收藏', wipeFailed: '清空失败',
+       // 顶部快捷入口 + 扩展管理页
+       topCheckUpdate: '⬆ 检查更新', topWipe: '🗑 删除全部收藏',
+       topCheckUpdateHint: '检查有没有新版本', topWipeHint: '删除全部已存页面（订阅源不动）',
+       updCheckingToast: '正在检查更新…',
+       updWebToast: '网页版/Docker 端请从发布页下载新版本',
+       extPageOpened: '已打开扩展管理页',
+       extPageNoBrowser: '没找到 Chrome / Edge / Chromium / Brave，请按对话框里的步骤手动打开',
+       extPageCopied: '地址已复制：chrome://extensions/ —— 粘贴到浏览器地址栏回车即可（浏览器禁止网页直接打开该地址）',
+       extPageManual: '浏览器禁止网页打开 chrome:// 地址，请在地址栏手动输入 chrome://extensions',
       exportBackup: '导出备份 (.zip)', importBackup: '导入备份',
       exportStarted: '备份下载已开始', importOk: (n) => `已导入 ${n} 个新页面`, importNone: '没有新页面可导入',
       importFail: (e) => '导入失败：' + e
@@ -752,7 +763,15 @@
       wipeAll: 'Wipe all pages', wipeTip: 'Delete every saved page (feeds are kept). The deletion syncs to other peers and cannot be undone.',
       wipeEmpty: 'The library is already empty', wipeConfirm1: 'Really delete all {n} saved pages? This cannot be undone.',
       wipeConfirm2: 'Final check: really delete every saved page? The deletion syncs to all devices and cannot be undone.', wipeWrongCode: 'Wrong passphrase, cancelled', wipeCancelled: 'Cancelled',
-      wipeDone: 'Wiped {n} pages', wipeFailed: 'Wipe failed',
+       wipeDone: 'Wiped {n} pages', wipeFailed: 'Wipe failed',
+       topCheckUpdate: '⬆ Check update', topWipe: '🗑 Delete all pages',
+       topCheckUpdateHint: 'Check for a new version', topWipeHint: 'Delete every saved page (feeds are kept)',
+       updCheckingToast: 'Checking for updates…',
+       updWebToast: 'Web / Docker builds: download the new version from the releases page',
+       extPageOpened: 'Opened the extensions page',
+       extPageNoBrowser: 'No Chrome / Edge / Chromium / Brave found — open it manually with the steps in the dialog',
+       extPageCopied: 'Copied chrome://extensions/ — paste it into the address bar (browsers block pages from opening it)',
+       extPageManual: 'Browsers block web pages from opening chrome:// — type chrome://extensions in the address bar',
       exportBackup: 'Export backup (.zip)', importBackup: 'Import backup',
       exportStarted: 'Backup download started', importOk: (n) => `Imported ${n} new page(s)`, importNone: 'Nothing new to import',
       importFail: (e) => 'Import failed: ' + e
@@ -861,6 +880,11 @@
     document.querySelector('header h1').textContent = t('appName');
     searchEl.placeholder = fullSearch ? t('fullsearchPh') : t('searchPh');
     document.getElementById('onlyStarred').textContent = onlyStarred ? t('starredOn') : t('starred');
+    // 顶部两个新入口也要跟着语言走（写在 data-i18n 里会被 title 漏掉，这里显式设）
+    const topUpd = document.getElementById('checkUpdBtn');
+    if (topUpd) { topUpd.textContent = t('topCheckUpdate'); topUpd.title = t('topCheckUpdateHint'); }
+    const topWipe = document.getElementById('wipeTopBtn');
+    if (topWipe) { topWipe.textContent = t('topWipe'); topWipe.title = t('topWipeHint'); }
     document.querySelectorAll('#langSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === prefs.lang));
     applyFont();
     applyFontSize();
@@ -1146,7 +1170,8 @@
   // ⚠️ 第二步以前用 prompt() 要暗号，但 Electron 不实现 prompt() —— 桌面版点了
   // 按钮会在那里静默抛错，什么都不会发生（用户实测点名）。confirm 双确认
   // 在 Electron 和浏览器都可用；接口侧仍要求暗号 WIPE-ALL，防护没有降级。
-  document.getElementById('wipeBtn').addEventListener('click', () => {
+  // 抽成函数是因为顶部搜索框左边也放了一个入口，两处共用同一套确认流程。
+  function wipeAllPages() {
     const n = pages.length;
     if (!n) { toast(t('wipeEmpty')); return; }
     if (!confirm(t('wipeConfirm1').replace('{n}', n))) return;
@@ -1174,7 +1199,9 @@
         toast(t('wipeDone').replace('{n}', d.deleted || 0));
       })
       .catch(() => toast(t('wipeFailed'), 'err'));
-  });
+  }
+  document.getElementById('wipeBtn').addEventListener('click', wipeAllPages);
+  document.getElementById('wipeTopBtn').addEventListener('click', wipeAllPages);
 
   document.getElementById('del').addEventListener('click', () => deletePage(currentId));
 
@@ -1383,10 +1410,34 @@
     btn.textContent = ok ? t('copied') : t('copyFail');
     setTimeout(() => { btn.textContent = t('copyPath'); }, 1500);
   });
-  document.getElementById('openExtPageBtn').addEventListener('click', () => {
-    // Electron 窗口里会被主进程拦截、转交系统浏览器打开；普通浏览器若被拦，按步骤手动输入即可
-    try { window.open('chrome://extensions/', '_blank'); } catch { /* 忽略 */ }
-  });
+  // 「打开扩展管理页」：以前这里直接 window.open('chrome://extensions/')，
+  // 但 chrome:// 这类特权地址是**被 Chromium 自己**拦掉的，拦截发生在
+  // Electron 的 setWindowOpenHandler 之前——桌面端点了永远没反应（v1.5.16
+  // 那次修复只让菜单项生效了，页内按钮没走到）。现在桌面端走显式 IPC，
+  // 由主进程直接唤起浏览器；纯浏览器场景打不开是浏览器的安全策略，
+  // 退化成「复制地址 + 提示粘贴」，至少让用户一步就能到位。
+  async function openExtManager() {
+    if (pvApi) {
+      try {
+        const r = await pvApi.invoke('ext:openManager');
+        if (r && r.ok) { toast(t('extPageOpened')); return true; }
+        toast(t('extPageNoBrowser'), 'err');
+        return false;
+      } catch (e) {
+        toast(t('extPageNoBrowser') + '：' + errText(e), 'err');
+        return false;
+      }
+    }
+    const addr = 'chrome://extensions/';
+    try {
+      await navigator.clipboard.writeText(addr);
+      toast(t('extPageCopied'));
+    } catch {
+      toast(t('extPageManual'), 'err');
+    }
+    return false;
+  }
+  document.getElementById('openExtPageBtn').addEventListener('click', openExtManager);
 
   // ---------- 保存链接 ----------
   // 手机上没有浏览器扩展那种「抓整页 DOM」的能力，所以给一个通用入口：
@@ -1527,8 +1578,13 @@
     updateEntry.addEventListener('click', () => { if (updateTag) openUpdateModal(updateTag); });
   }
 
-  async function checkUpdate() {
-    if (!pvApi) return;
+  async function checkUpdate(fromHeader) {
+    if (!pvApi) {
+      // 网页版 / Docker 端没有自更新通道：说清楚去哪儿下，别让人对着按钮猜
+      if (fromHeader) { toast(t('updWebToast')); window.open('https://github.com/feibixunchang/pagevault/releases', '_blank'); }
+      return;
+    }
+    if (fromHeader) toast(t('updCheckingToast'));
     updateStatus.textContent = t('checkingUpdate');
     try {
       const r = await pvApi.invoke('updater:check');
@@ -1538,13 +1594,19 @@
         openUpdateModal(r.tag);
       } else if (r && r.tag) {
         updateStatus.textContent = t('latestVer');
+        if (fromHeader) toast(t('latestVer'));
       } else {
         updateStatus.textContent = t('updateFail') + (r && r.error ? '：' + String(r.error).slice(0, 200) : '');
+        if (fromHeader) toast(updateStatus.textContent, 'err');
       }
     } catch (e) {
       updateStatus.textContent = t('updateFail') + '：' + (e && e.message ? e.message : e);
+      if (fromHeader) toast(updateStatus.textContent, 'err');
     }
   }
+
+  // 顶部搜索框左边的快捷入口（用户点名要放在这里，不用钻进设置面板）
+  document.getElementById('checkUpdBtn').addEventListener('click', () => checkUpdate(true));
 
   function openUpdateModal(tag) {
     updateTag = tag;

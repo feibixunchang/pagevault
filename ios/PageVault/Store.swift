@@ -396,6 +396,34 @@ final class Store: ObservableObject {
 
     // MARK: - 删除
 
+
+    /// 删除全部收藏：先清本地（列表立刻空掉，不等人盯着转圈），再让服务端整库清空。
+    /// 服务端失败就把本地列表原样拉回来，避免"手机上看着没了、别的端还在"的错觉。
+    /// 返回真正被删掉的条数。调用方负责二次确认。
+    @discardableResult
+    func wipeAll() async -> Int {
+        let backup = pages
+        let n = pages.count
+        pages = []
+        Cache.shared.saveIndex(pages)
+        guard let api = api else {
+            pages = backup
+            Cache.shared.saveIndex(pages)
+            errorMessage = "服务端地址填得不对，收藏没有清空"
+            return 0
+        }
+        do {
+            let deleted = try await api.wipeAll()
+            await refresh(showSpinner: false)
+            return deleted > 0 ? deleted : n
+        } catch {
+            pages = backup
+            Cache.shared.saveIndex(pages)
+            errorMessage = "清空失败：\(error.localizedDescription)"
+            return 0
+        }
+    }
+
     func delete(_ page: PageMeta) {
         pages.removeAll { $0.id == page.id }
         Cache.shared.removeHTML(id: page.id)

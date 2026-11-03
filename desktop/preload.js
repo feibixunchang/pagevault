@@ -16,7 +16,8 @@ const INVOKE_ALLOWED = new Set([
   'updater:cancel',
   'updater:install',
   'updater:version',
-  'web:open'
+  'web:open',
+  'ext:openManager'
 ]);
 
 contextBridge.exposeInMainWorld('pv', {

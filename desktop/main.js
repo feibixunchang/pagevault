@@ -254,6 +254,15 @@ function setupUpdaterIPC() {
     return url;
   });
 
+  // 页内「打开扩展管理页」：chrome://extensions 不能由渲染进程 window.open 打开
+  // （Chromium 在 Electron 的 setWindowOpenHandler 之前就把它拦了，所以页内按钮
+  // 点了永远没反应），必须由主进程直接唤起浏览器。
+  ipcMain.handle('ext:openManager', async () => {
+    const ok = await openInChromiumBrowser('chrome://extensions/');
+    log('ext:openManager ->', ok ? 'ok' : 'no chromium browser found');
+    return { ok };
+  });
+
   // 启动后自动检查：失败会重试（开机后网络常常还没起来），之后每 6 小时再查一次
   const auto = readPref('autoUpdate', true);
   log('autoUpdate pref =', auto);

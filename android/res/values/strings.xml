@@ -77,4 +77,19 @@
     <string name="load_fail">加载失败：%1$s</string>
     <string name="size_kb">%1$d KB</string>
     <string name="size_mb">%1$.1f MB</string>
+
+    <!-- 顶部两个入口：检查更新 / 删除全部收藏（与网页版、桌面端同一套文案与流程） -->
+    <string name="check_update">检查更新</string>
+    <string name="wipe_all">删除全部收藏</string>
+    <string name="wipe_empty">库里已经没有页面了</string>
+    <string name="wipe_confirm1">确定要清空全部 %1$d 条收藏吗？此操作无法撤销。</string>
+    <string name="wipe_confirm2">最后确认：真的要删除全部已存页面吗？删除会同步到所有设备，无法撤销。</string>
+    <string name="wipe_cancelled">已取消</string>
+    <string name="wipe_done">已清空 %1$d 条收藏</string>
+    <string name="wipe_failed">清空失败</string>
+    <string name="update_latest">已经是最新版本</string>
+    <string name="update_checking">正在检查更新…</string>
+    <string name="update_open_release">请到发布页下载新版 APK 覆盖安装</string>
+    <string name="update_fail">检查更新失败：%1$s</string>
+
 </resources>
