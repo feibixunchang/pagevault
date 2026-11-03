@@ -24,11 +24,40 @@ function extensionDir() {
   return null;
 }
 
+// shell.openExternal 只放行 http(s)/mailto，chrome:// 这类特权地址会被它
+// 静默拒绝（用户点名：「打开扩展管理页」点了没反应）。改为直接唤起
+// Chromium 系浏览器带该地址，按常见程度逐个尝试；全失败也只是浏览器没开，
+// 安装对话框里的分步说明和文件管理器定位照常可用。
+function openInChromiumBrowser(chromeUrl) {
+  const { execFile } = require('child_process');
+  const tries = process.platform === 'darwin'
+    ? [['open', ['-a', 'Google Chrome', chromeUrl]],
+       ['open', ['-a', 'Microsoft Edge', chromeUrl]],
+       ['open', ['-a', 'Chromium', chromeUrl]],
+       ['open', ['-a', 'Brave Browser', chromeUrl]]]
+    : process.platform === 'win32'
+    ? [['cmd', ['/c', 'start', 'chrome', chromeUrl]],
+       ['cmd', ['/c', 'start', 'msedge', chromeUrl]]]
+    : [['google-chrome', [chromeUrl]], ['chromium', [chromeUrl]],
+       ['chromium-browser', [chromeUrl]], ['microsoft-edge', [chromeUrl]]];
+  return new Promise(resolve => {
+    let i = 0;
+    const next = () => {
+      if (i >= tries.length) return resolve(false);
+      const [cmd, args] = tries[i++];
+      execFile(cmd, args, { timeout: 4000, windowsHide: true }, err => err ? next() : resolve(true));
+    };
+    next();
+  });
+}
+
 // 打开扩展管理页 + 在访达/资源管理器里定位扩展文件夹（加载已解压的扩展程序时选它）
 function installExtension() {
   const dir = extensionDir();
   log('install-extension clicked, dir =', dir || '(not found)');
-  try { shell.openExternal('chrome://extensions/'); } catch (e) { log('openExternal chrome:// failed:', e && e.message); }
+  openInChromiumBrowser('chrome://extensions/').then(ok => {
+    if (!ok) log('openInChromiumBrowser: 未找到可用的 Chromium 系浏览器');
+  });
   if (dir) shell.showItemInFolder(dir);
 }
 
@@ -543,10 +572,12 @@ function createWindow(url) {
   };
   ['resize', 'move', 'maximize', 'unmaximize'].forEach(ev => win.on(ev, queueWinState));
   win.on('close', () => { clearTimeout(wstateTimer); writeWindowState(win); });
-  // 页面里点 chrome://extensions、http(s) 等链接 → 转交系统浏览器打开，不在 app 内开新窗
+  // 页面里点 chrome://extensions、http(s) 等链接 → 转交系统浏览器打开，不在 app 内开新窗。
+  // http(s) 走 openExternal；特权 scheme（chrome:// 等）openExternal 不接，改走浏览器直启。
   win.webContents.setWindowOpenHandler(({ url: u }) => {
     try {
-      if (/^(chrome|edge|brave|vivaldi|opera|about|https?):/i.test(u)) shell.openExternal(u);
+      if (/^https?:/i.test(u)) shell.openExternal(u);
+      else if (/^(chrome|edge|brave|vivaldi|opera|about):/i.test(u)) openInChromiumBrowser(u);
     } catch (e) { log('openExternal failed:', e && e.message); }
     return { action: 'deny' };
   });
