@@ -278,6 +278,23 @@ class HotListEngine {
       try {
         page = await fetchText(item.url, headers, 15000);
       } catch (e) {
+        // 登录态/强反爬来源（知乎问题页要 x-zse 签名，Cookie 齐全也 403）：
+        // 抓不到原文但榜单自带摘要时，存"摘要版"——至少列表里可见可点，
+        // 全文留给浏览器扩展保存（用户点名：知乎整榜全丢）。
+        if (source.excerptFallback && item.summary) {
+          const esc = (s) => String(s).replace(/[&<>"']/g, (ch) =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+          const meta = hooks.persistPage({
+            html: '<h1>' + esc(item.title || '') + '</h1><p>' + esc(item.summary) + '</p>' +
+              '<p><em>摘要版：原站反爬限制抓不到全文。在浏览器打开原文并用扩展一键保存，即可存全文。</em></p>',
+            title: String(item.title || '').trim() || item.url,
+            url: item.url,
+            platform: source.id,
+            format: 'html',
+            engine: 'hotlist:' + source.id + ':excerpt'
+          }, { touchExtension: false });
+          return { id: meta.id, title: meta.title, url: meta.url, extracted: false, summary: item.summary || '' };
+        }
         throw new Error('抓原文失败：' + ((e && e.message) || e));
       }
     }

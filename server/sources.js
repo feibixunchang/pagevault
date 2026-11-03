@@ -127,6 +127,9 @@ const SOURCES = [
     // 知乎的接口必须带登录态 cookie，否则 401
     needsCookie: true,
     cookieHint: '浏览器登录知乎后按 F12 → Network → 任意请求 → Request Headers，把整行 cookie 复制过来（只要含 z_c0=… 那段就够）。Cookie 过期了这里也要重新填。',
+    // 知乎问题页对非浏览器客户端要 x-zse 签名，服务端抓全文必 403（Cookie 完整也没用）。
+    // 抓不到原文时退而存榜单自带的摘要版，至少列表可见可点；全文用浏览器扩展保存。
+    excerptFallback: true,
     // 抽不到正文就不存：宁可少存一篇，也别存一堆空页面
     requireContent: true,
     // 知乎问题页的正文容器：问题描述在 .QuestionRichText，
@@ -143,7 +146,11 @@ const SOURCES = [
         // 老代码只认 target_title_area → 每条标题都空 → 整张列表被过滤光
         // → 拉取结果显示"没有新文章"。两套字段都认，谁有算谁的。
         const t = card.title_area || card.target_title_area || card.coffee_card || {};
-        const excerpt = (card.excerpt_area && (card.excerpt_area.text || card.excerpt_area.long_text)) || '';
+        // 知乎两代接口的摘要字段位置不同：卡片结构在 excerpt_area.text，
+        // hot-lists/total 直接在 target.excerpt（字符串）。只认前者时
+        // summary 永远为空，摘要兜底也就无从谈起（用户点名修）。
+        const excerpt = (card.excerpt_area && (card.excerpt_area.text || card.excerpt_area.long_text))
+          || (typeof card.excerpt === 'string' ? card.excerpt : '');
         const link = (t.link && t.link.url) || (card.link && card.link.url) || '';
         return {
           title: stripTags(t.text || (it.detail_text || '')) || it.detail_text || '',
