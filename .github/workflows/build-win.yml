@@ -54,7 +54,7 @@ jobs:
             Where-Object { $_.Extension -in '.zip', '.exe', '.yml', '.blockmap' } |
             ForEach-Object {
               $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-              "{0,-44} {1,10:N1} MB  sha256:{2}" -f $_.Name, ($_/1MB), $h
+              "{0,-44} {1,10:N1} MB  sha256:{2}" -f $_.Name, ($_.Length / 1MB), $h
             }
 
       - uses: actions/upload-artifact@v4

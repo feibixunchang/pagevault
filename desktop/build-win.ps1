@@ -173,12 +173,34 @@ foreach ($must in @('WebVault.exe', 'icudtl.dat', 'resources.pak', 'snapshot_blo
 }
 
 # ------------------------------------------------------------------- zip -----
+# 用打包机自带的 System.IO.Compression.ZipFile 直接把 dist\WebVault-win32-x64
+# 压成 zip（条目路径以 WebVault-win32-x64/ 开头，与 Compress-Archive -Path $out
+# 的结果一致，更新器按"解压后第一个目录"找，不依赖目录名）。
+# 比 Compress-Archive 快一个数量级：后者是纯托管代码逐文件复制+压缩，实测这一步
+# 单独吃掉 6 分多钟，而整个 zip 用 .NET 只要十几秒。
 $zipName = "WebVault-$ver-win32-x64.zip"
 $zipPath = Join-Path $dist $zipName
 Step "building portable zip: $zipName"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-Compress-Archive -Path $out -DestinationPath $zipPath -CompressionLevel Optimal
-Step ("zip ready: " + [math]::Round((Get-Item $zipPath).Length / 1MB, 1) + " MB")
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression
+$fs = [System.IO.File]::Open($zipPath, [System.IO.FileMode]::CreateNew)
+$arch = New-Object System.IO.Compression.ZipArchive($fs, [System.IO.Compression.ZipArchiveMode]::Create)
+$baseLen = $dist.Length + 1
+$entryCount = 0
+Get-ChildItem $out -Recurse -File -Force | ForEach-Object {
+    # $_.Directory.FullName 形如 ...\dist\WebVault-win32-x64\resources\app
+    $relDir = $_.Directory.FullName.Substring($baseLen).Replace('\', '/')
+    $name = $_.Name
+    $entry = $arch.CreateEntry("$relDir/$name", [System.IO.Compression.CompressionLevel]::Optimal)
+    $es = $entry.Open()
+    $in = [System.IO.File]::OpenRead($_.FullName)
+    $in.CopyTo($es)
+    $in.Dispose(); $es.Dispose()
+    $entryCount++
+}
+$arch.Dispose(); $fs.Dispose()
+Step ("zip ready: " + $entryCount + " entries, " + [math]::Round((Get-Item $zipPath).Length / 1MB, 1) + " MB")
 
 if ($SkipSetup) { Step 'SkipSetup set - done (no NSIS)'; exit 0 }
 
