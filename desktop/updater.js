@@ -204,7 +204,18 @@ async function httpGetStream(url, headers, timeoutMs, hops) {
 // 先试新名字，探测不到再退回旧名字，避免老客户端卡在旧版升不上来。
 function assetNames(platform, version) {
   const v = String(version || '').replace(/^v/, '');
-  if (platform === 'win32') return [`WebVault-${v}-win32-x64.zip`, 'WebVault-win32-x64.zip'];
+  if (platform === 'win32') {
+    const setup = `WebVault-Setup-${v}.exe`;
+    const zips = [`WebVault-${v}-win32-x64.zip`, 'WebVault-win32-x64.zip'];
+    // 装在 %LOCALAPPDATA%\Programs\WebVault（NSIS 安装包默认位置）→ 优先 Setup 静默更新；
+    // 便携版跑在任意目录 → 继续 zip 就地改名替换，避免装出两份、桌面快捷方式各指各家。
+    let installed = false;
+    try {
+      const base = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'WebVault');
+      installed = !!base && String(process.execPath).toLowerCase().startsWith(base.toLowerCase());
+    } catch { /* 判不了就走老路 */ }
+    return installed ? [setup].concat(zips) : zips.concat([setup]);
+  }
   if (platform === 'darwin') {
     // macOS 从 v1.5.4 起按真实架构分开发包（arm64 / x64）。
     // 之前的包名一律写 -macos-x64，但 M 系列机器上产出的其实是 arm64 —— 名字不可信，
@@ -550,6 +561,26 @@ class Updater {
       return { target, backup };
     }
     if (this.platform === 'win32') {
+      // NSIS 安装包路线（安装版专用，assetNames 判定）：下载物就是 Setup.exe 本身。
+      // 写一个自删除 bat：等主进程退出（3 秒）→ /S 静默装 → NSIS 装完自动拉起新版。
+      // 便携版不会走到这里（zip 优先），免得在两个目录各留一份。
+      if (/\.exe$/i.test(zipPath)) {
+        const bat = path.join(os.tmpdir(), 'pagevault-setup-' + Date.now() + '.bat');
+        fs.writeFileSync(bat,
+          '@echo off\r\n' +
+          'rem 等网页收藏主进程退出后再装，避免文件占用\r\n' +
+          'timeout /t 3 /nobreak >nul\r\n' +
+          'call "' + zipPath + '" /S\r\n' +
+          'del "%~f0"\r\n');
+        const psSpawn = spawn('cmd.exe', ['/c', bat], { detached: true, stdio: 'ignore', windowsHide: true, cwd: os.tmpdir() });
+        let setupErr = null;
+        psSpawn.on('error', (e) => { setupErr = e; });
+        psSpawn.unref();
+        await new Promise(r => setTimeout(r, 300));
+        if (setupErr) throw new Error('无法启动安装程序：' + (setupErr.message || setupErr));
+        this.emit({ status: 'ready', installedTo: zipPath, newVersion: this.state.remoteVersion, installer: true });
+        return { target: zipPath, installer: true };
+      }
       // Windows 没法学 macOS 那样"先删再拷"：正在运行的 exe 是锁死的，robocopy 覆盖它会失败。
       // 老实现就是 robocopy /MIR 硬盖 + 内联 -Command 拼一长串 PowerShell，两个都是静默
       // 失败点（覆盖被拒、命令行引号被 Node 转义后 PowerShell 解析不了），表现就是

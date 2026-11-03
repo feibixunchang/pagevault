@@ -138,3 +138,15 @@ echo "  2. 双击 WebVault.exe（未代码签名，SmartScreen 会提示「未�
 echo "     「更多信息」→「仍要运行」）"
 echo "  3. 数据默认存 %APPDATA%\\pagevault-desktop，端口 8731"
 echo "  4. Chrome/Edge 加载 pagevault/extension 即可保存"
+
+# 5. NSIS 安装包（安装版路线：默认装 %LOCALAPPDATA%\Programs\WebVault，带快捷方式
+#    与卸载项；应用内更新对"安装版"优先走它，见 updater.js assetNames 的判定）。
+#    ⚠️ 本机 node 24 与 electron-builder 24 的 CLI 参数解析不兼容（yargs 把脚本
+#    路径自己当未知参数），必须走编程接口；targets 传数组，传字符串会被逐字符拆。
+( cd "$DESKTOP" && node -e "
+const path = require('path');
+const { build } = require('electron-builder');
+build({ prepackaged: path.resolve('dist/WebVault-win32-x64'), win: ['nsis'] })
+  .then(() => console.log('NSIS OK'))
+  .catch(e => { console.error('NSIS FAIL:', (e && e.message) || e); process.exit(1); });
+" )

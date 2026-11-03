@@ -1,16 +1,34 @@
 {
   "name": "pagevault-desktop",
-  "productName": "\u7f51\u9875\u6536\u85cf",
-  "version": "1.5.18",
+  "productName": "网页收藏",
+  "version": "1.5.19",
   "private": true,
-  "description": "PageVault desktop (macOS/Windows/Linux) \u2014 wraps the sync server + reader in a real app window.",
+  "author": { "name": "feibixunchang", "email": "feibixunchang@gmail.com" },
+  "description": "PageVault desktop (macOS/Windows/Linux) — wraps the sync server + reader in a real app window.",
   "main": "main.js",
+  "build": {
+    "appId": "com.feibixunchang.webvault",
+    "productName": "WebVault",
+    "directories": { "output": "dist" },
+    "win": {
+      "icon": "AppIcon.ico",
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "artifactName": "WebVault-Setup-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "WebVault-Setup-${version}.exe"
+    }
+  },
   "scripts": {
     "start": "electron .",
     "pack": "arch=$(uname -m); [ \"$arch\" = \"x86_64\" ] && arch=x64; electron-packager . PageVault --platform=darwin --arch=$arch --out=dist --overwrite --extra-resource=../server"
   },
   "devDependencies": {
     "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
     "electron-packager": "^17.1.2"
   }
 }

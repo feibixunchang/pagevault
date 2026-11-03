@@ -205,7 +205,14 @@ function setupUpdaterIPC() {
     try { if (tag && asset) expectedSha256 = await updater.fetchAssetDigest(tag, asset); } catch { /* 取不到就不校验 */ }
     await updater.download(url, dest, {
       expectedSha256,
-      onProgress: (p) => updater.emit({ status: 'downloading', progress: p < 0 ? 0 : p })
+      // 节流：数据块每收一次就 emit 会把 desktop.log 刷爆（Windows 端实测
+      // 一次更新几千行 downloading）。百分比取整后变化才发，UI 一样实时。
+      onProgress: ((last) => (p) => {
+        const v = p < 0 ? 0 : Math.round(p * 100);
+        if (v === last) return;
+        last = v;
+        updater.emit({ status: 'downloading', progress: v / 100 });
+      })(-1)
     });
     return dest;
   });
@@ -223,8 +230,12 @@ function setupUpdaterIPC() {
       opts.targetApp = m ? m[1] : path.join(os.homedir(), 'Applications', '网页收藏.app');
     }
     const r = await updater.install(zipPath, opts);
-    // 装好了就把下载目录里的更新包删掉（100~200MB，留着只会一直占 tmp）
-    setTimeout(() => { try { fs.unlinkSync(zipPath); } catch { /* 已被 mac 安装流程删掉/无权限就跳过 */ } }, 500);
+    // 装好了就把下载目录里的更新包删掉（100~200MB，留着只会一直占 tmp）。
+    // installer 路线例外：那个文件就是 Setup.exe 本身，bat 3 秒后还要执行它，
+    // 删了 NSIS 就没得跑了；留给 Windows 自己清理 %TEMP%。
+    if (!r || !r.installer) {
+      setTimeout(() => { try { fs.unlinkSync(zipPath); } catch { /* 已被 mac 安装流程删掉/无权限就跳过 */ } }, 500);
+    }
     // 覆盖安装后必须真的退出：macOS 的 open 会激活"已在运行的旧进程"，
     // 不退出的话点完更新界面没变化，用户会以为没装上。
     setTimeout(() => { quitting = true; app.quit(); }, 1200);
