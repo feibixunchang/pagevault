@@ -358,6 +358,9 @@ class Updater {
   constructor(opts) {
     this.platform = opts.platform || process.platform;
     this.currentVersion = opts.currentVersion || '0.0.0';
+    // 更新脚本日志的落点（主进程传 () => app.getPath('userData')，安装时才求值，
+    // 因为构造发生在 userData 被覆盖之前）；没传退回 tmp。
+    this.logDir = opts.logDir || null;
     this.listeners = [];
     this.state = { status: 'idle' }; // idle|checking|available|not-available|downloading|ready|error
     this.downloadAbort = null;
@@ -593,16 +596,28 @@ class Updater {
         throw new Error(`安装包版本异常（包内是 ${newVer}，当前 ${this.currentVersion}）`);
       }
 
-      const logPath = path.join(os.tmpdir(), 'pagevault-update.log');
-      const ps1 = path.join(os.tmpdir(), 'pagevault-apply-' + Date.now() + '.ps1');
-      fs.writeFileSync(ps1, '\ufeff' + psScript(), 'utf8');
+      // 日志写进应用数据目录（%APPDATA%\pagevault-desktop\update.log）：
+      // %TEMP% 里的文件既容易被杀软清、用户反馈问题时也找不到（用户点名：
+      // %TEMP% 里从来没有 pagevault-update.log —— 说明脚本根本没跑起来）。
+      const logPath = path.join(
+        (typeof this.logDir === 'function' ? this.logDir() : this.logDir) || os.tmpdir(),
+        'update.log');
+      // 整段脚本用 base64 -EncodedCommand 喂给 PowerShell，磁盘上不留 .ps1。
+      // 杀软的经典手法是把"%TEMP% 里刚冒出来的脚本"先删再查：文件没了
+      // powershell 以 -File 启动只会静默退出，于是「下载完直接退、什么都没发生、
+      // 连日志都没有」——正是用户看到的现象。
+      const raw = psScript();
+      const close = raw.indexOf('\n)');
+      const body = close >= 0 ? raw.slice(close + 2) : raw;
+      const q = (s) => String(s).replace(/'/g, "''");
+      const full = ["$Target='" + q(target) + "'", "$Src='" + q(src) + "'",
+        "$Stage='" + q(stage) + "'", "$LogPath='" + q(logPath) + "'", ""]
+        .join("\r\n") + body;
+      const b64 = Buffer.from("\ufeff" + full, "utf16le").toString("base64");
 
-      // 路径全部走 -File 的参数，不拼进命令字符串 —— 中文用户名、空格、引号都不会出问题。
-      // cwd 必须是别的目录：如果子进程的工作目录正好是待改名的 $Target，
-      // Rename-Item 会报"文件正被另一个进程使用"。
-      // powershell 用 SystemRoot 绝对路径：个别精简环境/异常 PATH 下裸名找不到，
-      // 而且 spawn 的错误是异步的——以前不监听 error，脚本根本没起来 app 也照退，
-      // 用户看到的就是"下载完直接退出、什么都没发生"（Windows 端实测点名）。
+      // powershell 用 SystemRoot 绝对路径：个别精简环境/异常 PATH 下裸名找不到。
+      // spawn 错误仍要接住（ENOENT 在下一 tick 报，等 300ms 兜住）；但脚本
+      // 起不来的一大主因（临时 .ps1 被删）已经随 EncodedCommand 方案消失。
       const psExe = (() => {
         const p = path.join(process.env.SystemRoot || 'C:\\Windows',
           'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
@@ -611,12 +626,11 @@ class Updater {
       })();
       const child = spawn(psExe, [
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
-        '-File', ps1, '-Target', target, '-Src', src, '-Stage', stage, '-LogPath', logPath
+        '-EncodedCommand', b64
       ], { detached: true, stdio: 'ignore', windowsHide: true, cwd: os.tmpdir() });
       let spawnErr = null;
       child.on('error', (e) => { spawnErr = e; });
       child.unref();
-      // ENOENT 之类的启动失败在下一 tick 就会报；等 300ms 足够兜住。
       await new Promise(r => setTimeout(r, 300));
       if (spawnErr) {
         cleanupStage();

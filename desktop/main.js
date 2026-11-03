@@ -111,7 +111,9 @@ let serverRestarts = 0;
 
 // ---------- 自动更新 ----------
 // 版本探测走多来源并发（github 302 / api.github.com / 镜像代理），下载多渠道测速选最快。
-const updater = new Updater({ currentVersion: app.getVersion() });
+// logDir 用函数传：构造这行执行时 app.setPath('userData') 还没跑（在文件更下方），
+// 当场取值会拿到未覆盖的默认目录。
+const updater = new Updater({ currentVersion: app.getVersion(), logDir: () => app.getPath('userData') });
 const promptedVersions = new Set();   // 同一个版本只弹一次原生提示，别反复骚扰
 let lastCheckAt = 0;                   // 最后一次**成功**检查的时间
 let lastFailAt = 0;                    // 最后一次失败的时间（决定要不要早点重试）
